@@ -159,6 +159,10 @@ let simCP (cr : coreResult) (utf8string : ustring) =
         List.iter (fun tag -> doTagTask i h (tag,ResetGroupStopTask)) cg.preReset;
         doEnter prev here ahead h cg.subPat newContext
   and doReturn prev ((i,c) as here) ahead h q context =
+    let continue hContinue = begin
+      Core.Option.iter q.postTag (fun tag -> doTagTask i hContinue (tag,TagTask));
+      dispatch prev (here::ahead) hContinue context
+    end in
     match q.unQ with
         Repeat r -> 
           (* Assert that this only gets run when r.unRep accepted at least one character *)
@@ -167,15 +171,14 @@ let simCP (cr : coreResult) (utf8string : ustring) =
           in
           if 0<soFar then () else failwith "impossible: doReturn.Repeat found soFar <= 0";
           let goLoop hLoop =
-            doRepTask hLoop (r.repDepth,IncRep topCount);
+            doRepTask hLoop (r.repDepth,IncRep r.topCount);
             List.iter (fun o -> doTagTask i hLoop (o,ResetOrbitTask)) r.resetOrbits;
             Core.Option.iter r.getOrbit (fun o -> doTagTask i hLoop (o,LoopOrbitTask));
             doEnter prev here ahead hLoop r.unRep loopContext
           and goLeave hLeave =
             doRepTask hLeave (r.repDepth,LeaveRep);
             Core.Option.iter r.getOrbit (fun o -> doTagTask i hLeave (o,LeaveOrbitTask));
-            Core.Option.iter q.postTag (fun tag -> doTagTask i hLeave (tag,TagTask));
-            dispatch prev (here::ahead) hLeave context
+            continue hLeave
           in
           if soFar < r.lowBound then goLoop h
           else
@@ -187,15 +190,10 @@ let simCP (cr : coreResult) (utf8string : ustring) =
             end
       | CaptureGroup cg ->
         begin
-          Core.Option.iter q.postTag (fun tag -> doTagTask i h (tag,TagTask));
           doTagTask i h (cg.postSet,SetGroupStopTask);
-          dispatch prev (here::ahead) h context
+          continue h
         end
-      | _ ->
-        begin
-          Core.Option.iter q.postTag (fun tag -> doTagTask i h (tag,TagTask));
-          dispatch prev (here::ahead) h context
-        end
+      | _ -> continue h
   in
   ignore (dispatch (-1,newline) xsTop startHistory [(SimEnterAny,root)]);
   ()
