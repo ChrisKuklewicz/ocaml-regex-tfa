@@ -159,10 +159,6 @@ let simCP (cr : coreResult) (utf8string : ustring) =
         List.iter (fun tag -> doTagTask i h (tag,ResetGroupStopTask)) cg.preReset;
         doEnter prev here ahead h cg.subPat newContext
   and doReturn prev ((i,c) as here) ahead h q context =
-    let continue hContinue = begin
-      Core.Option.iter q.postTag (fun tag -> doTagTask i hContinue (tag,TagTask));
-      dispatch prev (here::ahead) hContinue context
-    end in
     match q.unQ with
         Repeat r -> 
           (* Assert that this only gets run when r.unRep accepted at least one character *)
@@ -170,6 +166,10 @@ let simCP (cr : coreResult) (utf8string : ustring) =
           and soFar = h.repA.(r.repDepth)
           in
           if 0<soFar then () else failwith "impossible: doReturn.Repeat found soFar <= 0";
+          let continue hContinue =
+            Core.Option.iter q.postTag (fun tag -> doTagTask i hContinue (tag,TagTask));
+            dispatch prev (here::ahead) hContinue context
+          in
           let goLoop hLoop =
             doRepTask hLoop (r.repDepth,IncRep r.topCount);
             List.iter (fun o -> doTagTask i hLoop (o,ResetOrbitTask)) r.resetOrbits;
