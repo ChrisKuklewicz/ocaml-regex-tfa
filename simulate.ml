@@ -171,14 +171,15 @@ let simCP (cr : coreResult) (utf8string : ustring) =
             dispatch prev (here::ahead) hContinue context
           in
           let goLoop hLoop =
-            doRepTask hLoop (r.repDepth,IncRep r.topCount);
+            doRepTask hLoop (r.repDepth,IncRep topCount);
             List.iter (fun o -> doTagTask i hLoop (o,ResetOrbitTask)) r.resetOrbits;
             Core.Option.iter r.getOrbit (fun o -> doTagTask i hLoop (o,LoopOrbitTask));
             doEnter prev here ahead hLoop r.unRep loopContext
           and goLeave hLeave =
             doRepTask hLeave (r.repDepth,LeaveRep);
             Core.Option.iter r.getOrbit (fun o -> doTagTask i hLeave (o,LeaveOrbitTask));
-            continue hLeave
+            Core.Option.iter q.postTag (fun tag -> doTagTask i hLeave (tag,TagTask));
+            dispatch prev (here::ahead) hLeave context
           in
           if soFar < r.lowBound then goLoop h
           else
@@ -190,10 +191,15 @@ let simCP (cr : coreResult) (utf8string : ustring) =
             end
       | CaptureGroup cg ->
         begin
+          Core.Option.iter q.postTag (fun tag -> doTagTask i h (tag,TagTask));
           doTagTask i h (cg.postSet,SetGroupStopTask);
-          continue h
+          dispatch prev (here::ahead) h context
         end
-      | _ -> continue h
+      | _ ->
+        begin
+          Core.Option.iter q.postTag (fun tag -> doTagTask i h (tag,TagTask));
+          dispatch prev (here::ahead) h context
+        end
   in
   ignore (dispatch (-1,newline) xsTop startHistory [(SimEnterAny,root)]);
   ()
