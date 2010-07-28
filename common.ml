@@ -25,7 +25,7 @@ type tagTasks = (tag*tagTask) list * (rep*repTask) list with sexp
 (* type 'a taskUpdate = PreUpdate of 'a | PostUpdate of 'a with sexp *)
 type taskList = (tag*tagTask) list * (rep*repTask) list with sexp
 type tagOP = Maximize | Minimize | Orbit | GroupFlag with sexp
-8
+
 (* When building the NFA a given node in the regexp tree may want to lead to an NFA state or a
    bundle of transitions or the node may not have a preference
 

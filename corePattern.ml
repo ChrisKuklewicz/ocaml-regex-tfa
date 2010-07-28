@@ -57,9 +57,10 @@ with sexp
 
 let seeht ht = Sexplib.Sexp.to_string_hum (sexp_of_handleTag ht)
 
-let apply       = function | Apply tag -> Some tag                  | _ -> None
-let asAdvice    = function | Apply tag -> Advice tag                | s -> s
-let toPreUpdate = function | Apply tag -> [(tag,PreUpdate TagTask)] | _ -> []
+let apply       = function | Apply tag -> Some tag        | _ -> None
+let asAdvice    = function | Apply tag -> Advice tag      | s -> s
+let toUpdate = function | Apply tag -> [(tag,TagTask)] | _ -> []
+(* let toPreUpdate = function | Apply tag -> [(tag,PreUpdate TagTask)] | _ -> [] *)
 
 (* Experiment with replacing Test of whichTest with Test of testSet *)
 (* Experiment with replacing Empty constructor with (Test AlwaysTrue) *)
@@ -83,6 +84,7 @@ and capGroupQ = { parentGroup : groupIndex     (* from pattern PGroup's parentGI
 (* repeatQ is still being designed *)
 and repeatQ = { lowBound : int            (* flows up *)
               ; optHiBound : int option   (* flows up *)
+              ; topCount : int            (* flows up *)
               ; repDepth : int            (* flows down in state of first pass *)
               ; needsOrbit : bool         (* flows up *)
               ; mutable getOrbit : tag option (* flows down in second pass *)
@@ -175,8 +177,8 @@ let cannotTake = function q -> match q.takes with
 (* This concatenation is not very efficient yet, and resetGroupTags starts with the same tag value
    as setGroupTag which is thus redundant to reset *)
 let addGroupResetsToNullView resetGroupTags setGroupTag nvs =
-  let resetSome = List.map (fun tag -> (tag,PreUpdate ResetGroupStopTask)) resetGroupTags
-  and setOne = [(setGroupTag,PreUpdate SetGroupStopTask)]
+  let resetSome = List.map (fun tag -> (tag,ResetGroupStopTask)) resetGroupTags
+  and setOne = [(setGroupTag,SetGroupStopTask)]
   in let updatePair (test,(tags,reps)) = (test,(resetSome @ tags @ setOne,reps))
      in List.map updatePair nvs
 
@@ -197,23 +199,20 @@ let seqNullViews s1 s2 =
   in cleanNullView (List.concat (List.map overS1 s1))
 
 let tagWrapNullView ha hb oldNV =
-  match (toPreUpdate ha,toPreUpdate hb) with
+  match (toUpdate ha,toUpdate hb) with
       ([],[]) -> oldNV
     | (pre,post) -> let updatePair (oldTests,(oldTags,reps)) = (oldTests,(pre @ oldTags @ post,reps))
                     in List.map updatePair oldNV
 
 (* Four cases for list handling efficiency *)
 let orbitWrapNullView r optOrbit orbitResets oldNV =
-  let preROT = List.rev_map (fun t -> (t,PreUpdate ResetOrbitTask)) orbitResets in
+  let preROT = List.rev_map (fun t -> (t,ResetOrbitTask)) orbitResets in
   let (pre,post) = match optOrbit with
       None -> (preROT,[])
-    | Some o -> ((o,PreUpdate EnterOrbitTask) :: preROT,[(o,PreUpdate LeaveOrbitTask)])
-  and topCount = match r.optHiBound with
-      None -> 1+r.lowBound
-    | Some hi -> hi
+    | Some o -> ((o,EnterOrbitTask) :: preROT,[(o,LeaveOrbitTask)])
   in
-  let preRep = (r.repDepth,PreUpdate (IncRep topCount))
-  and postRep = (r.repDepth,PreUpdate LeaveRep) in
+  let preRep = (r.repDepth,IncRep r.topCount)
+  and postRep = (r.repDepth,LeaveRep) in
   let updatePair (oldTests,(oldTags,oldReps)) = (oldTests,
                                                  (List.rev_append pre (oldTags @ post),
                                                  preRep :: (oldReps @ [postRep])))
@@ -302,6 +301,7 @@ let toCorePattern (patternIn) : coreResult =
                   ; wants = WantsBundle
                   ; unQ = Repeat { lowBound = i
                                  ; optHiBound = optJ
+                                 ; topCount = (match optJ with None -> 1+i | Some j -> j)
                                  ; repDepth = myDepth
                                  ; needsOrbit = needsOrbit
                                  ; getOrbit = None  (* set below in addTags *)
