@@ -2,6 +2,8 @@
 
 TYPE_CONV_PATH "Common"
 
+type ('a, 'b) either = Left of 'a | Right of 'b
+
 type patIndex = int with sexp
 type groupIndex = int with sexp
 type strIndex = int with sexp
@@ -46,4 +48,24 @@ module IntMap = Core.Core_map.Make(Core.Core_int)
 type orbitLog = orbitEntry IntMap.t
 
 type orbitTransformer = orbitLog -> orbitLog
+
+
+let forList = Core.Core_list.iter
+let forOpt = Core.Option.iter
+let forArray = Core.Core_array.iter
+let forIArray f arr = Core.Core_array.iteri arr f
+
+type history = { tagA : int array
+               ; repA : int array
+               ; orbitA : (int list) array
+               }
+with sexp
+
+type groupCap = (int*int) array
+with sexp
+
+let copyHistory { tagA=a;repA=b;orbitA=c } = { tagA = Array.copy a
+                                             ; repA = Array.copy b
+                                             ; orbitA = Array.copy c
+                                             }
 

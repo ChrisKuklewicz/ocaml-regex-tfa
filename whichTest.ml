@@ -66,7 +66,7 @@ module WhichTestMonoid =
           match (optA,optB) with
               (_,None) -> optA
             | (None,_) -> optB
-            | (Some (tf1,a),Some (tf2,b)) when tf1==tf2 -> Some (tf1,a @ b)
+            | (Some (tf1,a),Some (tf2,b)) when tf1=tf2 -> Some (tf1,a @ b)
           | _ -> raise SetFalse
         in
         try CheckAll (WhichTestMap.merge mergeWTM a b)
@@ -83,7 +83,7 @@ let dominates x y = match (x,y) with
   | (CheckAll a,CheckAll b) ->
     let test ~key ~data:(b1,_) =
       match WhichTestMap.find b key with
-          Some (b2,_) when b1==b2 -> ()
+          Some (b2,_) when b1=b2 -> ()
         | _ -> raise SetFalse
     in
     try (WhichTestMap.iter test a ; true)

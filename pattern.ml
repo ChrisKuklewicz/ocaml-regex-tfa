@@ -48,7 +48,7 @@ let printer_uset = fun f s ->
 (* XXX XXX There is a bug in USet.fold_range, r is always the same as l XXX XXX *)
   ignore (fold_range (fun l r first ->
     if not first then Format.fprintf f "," else ();
-    if l==r then Format.fprintf f "%a" printer_uchar l
+    if l=r then Format.fprintf f "%a" printer_uchar l
     else Format.fprintf f "%a-%a" printer_uchar l printer_uchar r;
     false;) (USet.iset_of_uset s) true);
   Format.fprintf f ")@]";;
@@ -131,7 +131,7 @@ let show_pattern patternIn =
     | PPlus -> add_char '+'
     | PStar -> add_char '*'
     | PBound (i,None) -> add_char '{'; add_int i; add_char ','; add_char '}'
-    | PBound (i,Some j) when i==j -> add_char '{' ; add_int i; add_char '}'
+    | PBound (i,Some j) when i=j -> add_char '{' ; add_int i; add_char '}'
     | PBound (i,Some j) -> add_char '{' ; add_int i;  add_char ',';  add_int j; add_char '}'
   and doBracket (invert,bps) =
     begin

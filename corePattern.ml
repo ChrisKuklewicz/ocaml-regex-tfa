@@ -3,8 +3,14 @@
    Learn enough of OCaml's lazy pattern matching to see if it is still possible.
    Otherwise change some or all names field to be mutable.
 
+
    First pass : convert pattern to corePattern gathering length information
    Second pass : mutate corePattern, removing CaptureGroup nodes and setting tag information
+
+
+   Possible optimization: 
+   Recognize "Or" (...list of OneChar...) and compress?
+   Recognize "Seq" (...list of OneChar...) and compress?
 
 *)
 open CamomileLibrary
@@ -87,7 +93,7 @@ and repeatQ = { lowBound : int            (* flows up *)
               ; topCount : int            (* flows up *)
               ; repDepth : int            (* flows down in state of first pass *)
               ; needsOrbit : bool         (* flows up *)
-              ; mutable getOrbit : tag option (* flows down in second pass *)
+              ; mutable getOrbit : tag option  (* flows down in second pass *)
               ; mutable resetOrbits : tag list (* flows down in second pass *)
               ; unRep : coreQ
               }
@@ -101,14 +107,6 @@ and coreQ = { takes : int * int option  (* flows up for use in first pass only *
             ; mutable nullQ : nullView  (* flows up in second pass after down in second pass *)
             ; unQ : corePattern         (* must be mutable to remove CaptureGroup from corePattern *)
             }
-and corePatternZip = 
-    CorePatternTop
-  | Or'Zip
-  | Seq1'Zip
-  | Seq2'Zip
-  | Repeat'Zip
-  | CaptureGroup'Zip
-and corePatternLoc = coreQ * corePatternZip
 with sexp
 
 (* nothing is the blank template pattern *)
@@ -249,6 +247,14 @@ let toCorePattern (patternIn) : coreResult =
     }
   in
   let rec repDepthRef = ref 0 (* simple enough to avoid using an OCaml object *)
+  and repMaxDepthRef = ref (-1)  (* negative indicates there are no repetitions *)
+  and withRep lazyThunk =
+    let myDepth = !repDepthRef in
+    repMaxDepthRef := max myDepth !repMaxDepthRef;
+    repDepthRef := 1+myDepth;
+    let value = Lazy.force lazyThunk in
+    repDepthRef := myDepth;
+    (value,myDepth)
   (* Note: repDepthRef is not spoiled by order of execution of branches or pieces *)
   (* XXX TODO : record max repDepth when running ? *)
   (* DEFINE THE FIRST PASS CONVERSION FROM pattern TO corePattern *)
@@ -282,22 +288,18 @@ let toCorePattern (patternIn) : coreResult =
           | PBound (1,Some 1) -> doElemAt (PAtom a,i)
           | PBound (i,optJ) -> 
             (* Only increment and use repDepth when there may be more than 1 repetition *)
-            let myDepth = !repDepthRef in
-            repDepthRef := myDepth+1;
-            let q = doAtom a i in
-            repDepthRef := myDepth;
+            let (q,myDepth) = withRep (lazy (doAtom a i)) in
             if cannotTake q then 
               (* Since q cannot accept characters the myDepth increment had no effect during (doAtom a i) *)
-              if i==0 then combineOr q epsilon [] else q
+              if i=0 then combineOr q epsilon [] else q
             else
               let lo = i*(fst q.takes)
               and hi = liftOpt ( * ) optJ (snd q.takes) (* assert : neither j nor k can be Some 0 here *)
               and needsOrbit = varies q.takes && q.childGroups in
-              let needsTags = needsOrbit || (not (cannotTake q)) in
               { nothing
                 with takes = (lo,hi)
                   ; childGroups = q.childGroups
-                  ; tagged = needsTags
+                  ; tagged = true
                   ; wants = WantsBundle
                   ; unQ = Repeat { lowBound = i
                                  ; optHiBound = optJ
@@ -348,7 +350,7 @@ let toCorePattern (patternIn) : coreResult =
                  begin
                    nextTagRef := tag+1;
                    tagOPsLog := op :: !tagOPsLog;
-                   Printf.printf "%s = %i\n" msg tag; 
+(*                   Printf.printf "%s = %i\n" msg tag; *)
                    tag
                  end
   and uniq msg = Apply (uniq' msg Maximize)
@@ -370,7 +372,7 @@ let toCorePattern (patternIn) : coreResult =
     (value,orbitTags)
   (* TODO: consider changing group info state into an OCaml object *)
   and groupInfoRef = ref [ [] ] (* Used  *)
-  and groupInfoLog = ref []     (* Used to accumulate all knowledge of groupInfo *)
+  and groupInfoLog = ref [ ]     (* Used to accumulate all knowledge of groupInfo *)
   and pushGroup () = groupInfoRef := [] :: !groupInfoRef
   and popGroup () = match !groupInfoRef with
       [] -> failwith "impossible corePattern popGroup"
@@ -437,7 +439,7 @@ let toCorePattern (patternIn) : coreResult =
         begin
           let (ha,hb) = acquire () in
           let aAdvice = asAdvice ha and bAdvice = asAdvice hb in
-          let bs = if q.tagged
+          let bs = if q.childGroups
             then thunkRepeatOnto [bAdvice] (fun () -> uniq "or thunk") (List.length qs-1)
             else pureRepeatOnto [] bAdvice (List.length qs)
           in
@@ -451,7 +453,8 @@ let toCorePattern (patternIn) : coreResult =
       | Repeat r -> 
         let (ha,hb) = acquire () in
         let optOrbit = if r.needsOrbit then Some (makeOrbit ()) else None in
-        let (AppliedBoth,resetOrbitTags) = withOrbit (lazy (addTags r.unRep NoTag NoTag)) in
+        (* XXX try asAdvice hb instead of NoTag *)
+        let (AppliedBoth,resetOrbitTags) = withOrbit (lazy (addTags r.unRep NoTag (asAdvice hb))) in
         (* A value in optOrbit is never included in resetOrbitTags *)
         let nullView =
           let childView =
@@ -471,10 +474,8 @@ let toCorePattern (patternIn) : coreResult =
   { cp = coreP
   ; tags = Array.of_list (List.rev !tagOPsLog)
   ; groups = Array.of_list (List.rev !groupInfoLog)
-  ; depth = !repDepthRef
+  ; depth = !repMaxDepthRef
   }
-
-type ('a , 'b) either = Left of 'a | Right of 'b
 
 let kick s = let pe = parseRegex s in
              let cp = match pe with
