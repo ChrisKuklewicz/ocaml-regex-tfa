@@ -18,6 +18,9 @@ open Pattern
 open ReadPattern
 open WhichTest
 open Common
+open Core.Result
+
+let ignore = Pervasives.ignore
 
 TYPE_CONV_PATH "CorePattern"
 
@@ -393,7 +396,7 @@ let toCorePattern (patternIn) : coreResult =
     let acquire () = let ha = if q.tagged && (m1=NoTag) then uniq "acquire preTag" else m1 in
                      let hb = if q.tagged && (m2=NoTag) then uniq "acquire postTag" else m2 in
                      (ha,hb)
-    and applyBoth a b newNullView =
+    and applyBoth a b newNullView : appliedBoth =
       q.preTag <- apply a;
       q.postTag <- apply b;
       q.nullQ <- tagWrapNullView a b newNullView;
@@ -413,8 +416,10 @@ let toCorePattern (patternIn) : coreResult =
           let (AppliedBoth,childFlags) = listenGroups (lazy (addTags cg.subPat ha hb)) in
           let resetGroupTags = flag::childFlags in
           let nullView = addGroupResetsToNullView resetGroupTags flag cg.subPat.nullQ in
+(*
           (* forcing cg.subPat.nullQ to [] since it cannot accept 0 characters itself ? *)
           cg.subPat.nullQ <- [];
+*)
           cg.preReset <- resetGroupTags;
           cg.postSet <- flag;
           applyBoth NoTag NoTag nullView
@@ -446,8 +451,10 @@ let toCorePattern (patternIn) : coreResult =
           (*Printf.printf "or (%s,%s)\n" (seeht ha) (seeht hb);List.iter (fun bTag -> Printf.printf "or b %s\n" (seeht bTag)) bs; *)
           List.iter2 (fun branch bTag -> ignore (addTags branch aAdvice bTag)) qs bs;
           let nullView = cleanNullView (List.concat (List.map (fun q -> q.nullQ) qs)) in
+(*
           (* forcing r.unRep.nullQ to [] since it cannot accept 0 characters itself ? *)
           List.iter (fun q -> q.nullQ <- []) qs;
+*)
           applyBoth ha hb nullView
         end
       | Repeat r -> 
@@ -462,8 +469,10 @@ let toCorePattern (patternIn) : coreResult =
             else cleanNullView ( r.unRep.nullQ @ [(AlwaysTrue,([],[]))] )
           in orbitWrapNullView r optOrbit resetOrbitTags childView
         in
-        (* forcing r.unRep.nullQ to [] since it cannot accept 0 characters itself ? *)
-        r.unRep.nullQ <- [];
+(*
+          (* forcing cg.subPat.nullQ to [] since it cannot accept 0 characters itself ? *)
+          r.unPat.nullQ <- [];
+*)
         r.getOrbit <- optOrbit;
         r.resetOrbits <- resetOrbitTags;
         applyBoth ha hb nullView
@@ -478,13 +487,13 @@ let toCorePattern (patternIn) : coreResult =
   }
 
 let kick s = let pe = parseRegex s in
-             let cp = match pe with
-                     ParseFail err -> Left err
-                   | ParseSucceed p -> Right (p,toCorePattern p)
+             let cp = match pe with 
+                 Error err -> Error err
+               | Ok p -> Ok (p,toCorePattern p)
              in begin
                Printf.printf "OUT: %s\n" (see pe);
                match cp with
-                   Right (p1,{cp=p2;tags=at;groups=ag}) -> 
+                   Ok (p1,{cp=p2;tags=at;groups=ag}) -> 
                      let s = Sexplib.Sexp.to_string_hum (Sexplib.Conv.sexp_of_array sexp_of_tagOP at) in Printf.printf "tagOP %s\n" s;
                      let s = Sexplib.Sexp.to_string_hum (Sexplib.Conv.sexp_of_array sexp_of_groupInfo ag) in Printf.printf "groupInfo %s\n" s;
                      let s = Sexplib.Sexp.to_string_hum (sexp_of_pattern p1) in Printf.printf "%s\n" s;

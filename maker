@@ -1,4 +1,4 @@
 rm *.cmo *.cmi
-for i in common.ml monoid.ml pattern.ml readPattern.ml whichTest.ml corePattern.ml simulate.ml main.ml ; do
+for i in common.ml monoid.ml pattern.ml readPattern.ml whichTest.ml corePattern.ml simulate.ml main.ml unitTest.ml ; do
     ocamlfind ocamlc -annot -pp "camlp4o -I `ocamlfind query type-conv`  -I `ocamlfind query sexplib` pa_type_conv.cmo pa_sexp_conv.cmo"  -I `ocamlfind query sexplib` -thread -package camomile,core,type-conv,sexplib  /Users/chrisk/local//godi/lib/ocaml/pkg-lib/sexplib/sexplib.cma -c $i;
 done

@@ -2,8 +2,6 @@
 
 TYPE_CONV_PATH "Common"
 
-type ('a, 'b) either = Left of 'a | Right of 'b
-
 type patIndex = int with sexp
 type groupIndex = int with sexp
 type strIndex = int with sexp
