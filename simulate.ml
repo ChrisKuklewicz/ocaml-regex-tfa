@@ -115,7 +115,6 @@ let rec simCP ?(prevIn=(-1,newline,0)) (cr : coreResult) (utf8string : ustring) 
   Printf.printf "simCP %d %d %s\n" piIn init utf8string;
   let xsTop = stringToList utf8string
   and numTags = Array.length cr.tags
-  (*  and numGroups = Array.length cr.groups *)
   and root = cr.cp
   and indexAtEnd = if UTF8.length utf8string > 0 then UTF8.next utf8string (UTF8.last utf8string) else UTF8.first utf8string
   in
@@ -157,7 +156,6 @@ let rec simCP ?(prevIn=(-1,newline,0)) (cr : coreResult) (utf8string : ustring) 
       let pass = match testSet with
           AlwaysTrue -> true
         | AlwaysFalse -> false
-          
         | CheckAll tests -> List.for_all checkTest (WhichTestMap.to_alist tests)
       in if pass then let hpass = doTasks post (copyHistory h) taskList
                       in dispatch prev [] hpass context
