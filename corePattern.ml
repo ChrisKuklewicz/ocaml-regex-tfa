@@ -275,25 +275,25 @@ let toCorePattern (patternIn) : coreResult =
           | (lastChild::revChildren) -> List.fold_left
             (fun qEnd qFront -> combineSeq qFront qEnd)
             lastChild revChildren
-  and doElemAt (e,i) =
+  and doElemAt (e,patIndex) =
     match e with
-        PAtom a -> doAtom a i
-      | PAnchor a -> doAnchor a i
+        PAtom a -> doAtom a patIndex
+      | PAnchor a -> doAnchor a patIndex
       | PRepeat (a,r) -> 
         match r with
-            PQuest -> doElemAt (PRepeat (a,PBound (0,Some 1)),i)
-          | PPlus -> doElemAt (PRepeat (a,PBound (1,None)),i)
-          | PStar -> doElemAt (PRepeat (a,PBound (0,None)),i)
-          | PBound (badI,_) when badI < 0 -> failwith (Printf.sprintf "invalid bound repetition {%i,_} at byte %i" badI i)
-          | PBound (badI,Some badJ) when badI > badJ -> failwith (Printf.sprintf "invalid bound repetion {%i,%i} at byte %i" badI badJ i)
+            PQuest -> doElemAt (PRepeat (a,PBound (0,Some 1)),patIndex)
+          | PPlus -> doElemAt (PRepeat (a,PBound (1,None)),patIndex)
+          | PStar -> doElemAt (PRepeat (a,PBound (0,None)),patIndex)
+          | PBound (badI,_) when badI < 0 -> failwith (Printf.sprintf "invalid bound repetition {%i,_} at byte %i" badI patIndex)
+          | PBound (badI,Some badJ) when badI > badJ -> failwith (Printf.sprintf "invalid bound repetion {%i,%i} at byte %i" badI badJ patIndex)
           | PBound (0,Some 0) -> epsilon
-          | PBound (0,Some 1) -> combineOr (doAtom a i) epsilon []
-          | PBound (1,Some 1) -> doElemAt (PAtom a,i)
+          | PBound (0,Some 1) -> combineOr (doAtom a patIndex) epsilon []
+          | PBound (1,Some 1) -> doElemAt (PAtom a,patIndex)
           | PBound (i,optJ) -> 
             (* Only increment and use repDepth when there may be more than 1 repetition *)
-            let (q,myDepth) = withRep (lazy (doAtom a i)) in
+            let (q,myDepth) = withRep (lazy (doAtom a patIndex)) in
             if cannotTake q then 
-              (* Since q cannot accept characters the myDepth increment had no effect during (doAtom a i) *)
+              (* Since q cannot accept characters the myDepth increment had no effect during (doAtom a patIndex) *)
               if i=0 then combineOr q epsilon [] else q
             else
               let lo = i*(fst q.takes)
@@ -313,11 +313,11 @@ let toCorePattern (patternIn) : coreResult =
                                  ; resetOrbits = [] (* set below in addTags *)
                                  ; unRep = q }
               }
-  and doAtom atom i =
+  and doAtom atom patIndex =
     let one s = { nothing
                   with takes = (1,Some 1)
                     ; wants = WantsState
-                    ; unQ = OneChar(s,i)
+                    ; unQ = OneChar (s,patIndex)
                 }
     in match atom with
         PDot -> one all_unicode

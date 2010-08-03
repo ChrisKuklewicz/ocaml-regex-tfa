@@ -1,4 +1,4 @@
-open Simulate
+Simulate.test ();
 
-test ();
+SimStep.test ();
 
