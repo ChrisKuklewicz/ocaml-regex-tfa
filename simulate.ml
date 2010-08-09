@@ -33,13 +33,13 @@ let newline = UChar.of_char '\n'
 let stringToList : ustring -> (strIndex*uchar) list = fun s ->
   let firstBytePos = UTF8.first s
   and lastBytePos = UTF8.last s in
-  let rec go bytePos = if bytePos <= lastBytePos 
+  let rec go acc bytePos = if bytePos <= lastBytePos 
     then let nextBytePos = UTF8.next s bytePos
-         in (bytePos,UTF8.look s bytePos) :: go nextBytePos
-    else []
+         in go ((bytePos,UTF8.look s bytePos) :: acc) nextBytePos
+    else List.rev acc
   in
 (*  Printf.printf "stringToList %d %d %d\n" firstBytePos lastBytePos (UTF8.length s);*)
-  if UTF8.length s > 0 then go firstBytePos else []
+  if UTF8.length s > 0 then go [] firstBytePos else []
 
 let rec comparePos a b = match (a,b) with
     ([],[]) -> 0
@@ -173,7 +173,7 @@ let rec simCP ?(prevIn=(-1,newline,0)) (cr : coreResult) (utf8string : ustring) 
           if (note = NoNote) && (soFar < r.lowBound)
           then
             begin
-              doRepTask h (r.repDepth,IncRep r.topCount); (* XXX actually, set the rep counter to r.lowBound-1 *)
+              doRepTask h (r.repDepth,IncRep r.topCount);
               forList r.resetOrbits (fun o -> doTagTask post h (o,ResetOrbitTask));
               forOpt r.getOrbit (fun o -> doTagTask post h (o,LoopOrbitTask));
               doEnterEnd prev post h r.unRep ((SimReturn NoteNoLoop,q) :: context)
@@ -220,7 +220,7 @@ let rec simCP ?(prevIn=(-1,newline,0)) (cr : coreResult) (utf8string : ustring) 
           forOpt r.getOrbit (fun o -> doTagTask i h (o,EnterOrbitTask));
           doEnter prev here ahead h r.unRep newContext
         end
-      | Test _ -> ()
+      | Test _ -> () (* unreachable *)
       | OneChar (us,_) when USet.mem c us -> (*Printf.printf "++gulp++ %s\n" (UPervasives.escaped_uchar c);*)
         dispatch here ahead h newContext
       | OneChar _ -> (* Printf.printf "--fail-- %s\n" (UPervasives.escaped_uchar c); *) ()

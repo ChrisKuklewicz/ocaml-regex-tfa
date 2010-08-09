@@ -67,3 +67,5 @@ let copyHistory { tagA=a;repA=b;orbitA=c } = { tagA = Array.copy a
                                              ; orbitA = Array.copy c
                                              }
 
+type continueTo = ContEnter | ContReturn | ContRoot
+with sexp

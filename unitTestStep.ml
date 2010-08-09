@@ -42,7 +42,7 @@ let runTestFile name =
     match (parseRegex sRE) with
         Error err -> Printf.printf "Failed to parse: %s %s\nError message: %s\n" sN sRE err
       | Ok p ->
-        let s = Sexplib.Sexp.to_string_hum (sexp_of_pattern p) in Printf.printf "Pattern %s\n" s;
+        (* let s = Sexplib.Sexp.to_string_hum (sexp_of_pattern p) in Printf.printf "Pattern %s\n" s;*)
         let cr = toCorePattern p in
         let sText = if sTextIn="NULL" then "" else sTextIn in
         let found = match uWrap cr sText with
@@ -64,7 +64,8 @@ let runTestFile name =
   let g = open_in name
   in
   Printf.printf "\nLoading Tests from: %s\n" name;
-  Core.In_channel.iter_lines g readTest
+  Core.In_channel.iter_lines g readTest;
+  close_in g
 
 let runAllTestFiles () = 
   let chan = open_in manifest in

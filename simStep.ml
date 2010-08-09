@@ -51,8 +51,6 @@ end
 
 module HistMap = Core.Core_map.Make(HistoryID)
 
-let pr = Printf.printf
-
 type postData = { pHistory : history
                 ; pPostTag : tag option
                 ; pContext : (simStack*coreQ) list
@@ -69,7 +67,7 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
   and root = cr.cp
   in
 
-  let s = Sexplib.Sexp.to_string_hum (sexp_of_coreResult cr) in Printf.printf "simStep %s\n" s;
+(*  let s = Sexplib.Sexp.to_string_hum (sexp_of_coreResult cr) in Printf.printf "simStep %s\n" s;*)
 
   let prev = ref prevIn
   and winners = ref []
@@ -96,15 +94,15 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
      replace "m2" with the empty map. *)
   let rec nextStep = function
     | StepChar ((_i,_c) as here) ->
-      pr "StepChar (%d,%s)\n" _i (us _c);
+      (*pr "StepChar (%d,%s)\n" _i (us _c);*)
       spark here;
-      pr "  _spark done_\n";
+      (*pr "  _spark done_\n";*)
       HistMap.iter (process here) !m1;
       cycle here
     | StepEnd indexAtEnd -> 
-      pr "StepEnd %d\n" indexAtEnd;
+      (*pr "StepEnd %d\n" indexAtEnd;*)
       sparkEnd indexAtEnd;
-      pr "  _sparkedEnd done_\n";
+      (*pr "  _sparkedEnd done_\n";*)
       HistMap.iter (processEnd indexAtEnd) !m1;
       cycle (indexAtEnd,newline)
 
@@ -146,8 +144,8 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
        doEnterEnd indexAtEnd h root []
   and doWin i h =
     doTagTask i h (1,TagTask); 
-    let s = Sexplib.Sexp.to_string_hum (sexp_of_history h)
-    in Printf.printf "  Winner at %d : %s\n" i s;
+(*    let s = Sexplib.Sexp.to_string_hum (sexp_of_history h)
+    in Printf.printf "  Winner at %d : %s\n" i s;*)
     winners := h :: !winners
   and doEnterEnd indexAtEnd h q context =
     let (_,pc) = !prev in
@@ -180,7 +178,7 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
               doRepTask h (r.repDepth,IncRep r.topCount);
               forList r.resetOrbits (fun o -> doTagTask indexAtEnd h (o,ResetOrbitTask));
               forOpt r.getOrbit (fun o -> doTagTask indexAtEnd h (o,LoopOrbitTask));
-              doEnterEnd indexAtEnd h r.unRep ((SimReturn NoteNoLoop,q) :: context)
+              doEnterEnd indexAtEnd h r.unRep ((SimReturn NoteNoLoop,q) :: context)       (* build special context for nullQ *)
             end
           else
             begin
@@ -220,12 +218,15 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
             doRepTask hLoop (r.repDepth,IncRep r.topCount);
             forList r.resetOrbits (fun o -> doTagTask i hLoop (o,ResetOrbitTask));
             forOpt r.getOrbit (fun o -> doTagTask i hLoop (o,LoopOrbitTask));
-            doEnter here hLoop r.unRep ((SimReturn NoNote,q) :: context)
+            (* This is where recursion happens: doReturn into doEnter *)
+            (* Note that is replaces the just popped (SimReturn NoNote,q) *)
+            doEnter here hLoop r.unRep ((SimReturn NoNote,q) :: context)             (* build typical recursing context *)
           and goLoopNull hLoop =
             doRepTask hLoop (r.repDepth,IncRep r.topCount);
             forList r.resetOrbits (fun o -> doTagTask i hLoop (o,ResetOrbitTask));
             forOpt r.getOrbit (fun o -> doTagTask i hLoop (o,LoopOrbitTask));
-            doEnterNull here hLoop r.unRep ((SimReturn NoteNoLoop,q) :: context)
+            (* This is not acutal recursion, just r.unRep.nullQ *)
+            doEnterNull here hLoop r.unRep ((SimReturn NoteNoLoop,q) :: context)     (* build special context for nullQ *)
           and goLeave hLeave =
             doRepTask hLeave (r.repDepth,LeaveRep);
             forOpt r.getOrbit (fun o -> doTagTask i hLeave (o,LeaveOrbitTask));
@@ -245,13 +246,13 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
       | _ -> continue h
   and doEnter ((i,c) as here) h q oldContext =
     if (Some 0 = snd q.takes) then () else
-      let newContext = (SimReturn NoNote,q) :: oldContext in
+      let newContext = (SimReturn NoNote,q) :: oldContext in                   (* build typical recursing context *)
       forOpt q.preTag (fun tag -> doTagTask i h (tag,TagTask));
       match q.unQ with
           Or qs -> forList qs (fun q -> doEnter here (copyHistory h) q newContext)
         | Seq (qFront,qEnd) ->
-          doEnterNull here h qFront ((SimEnterAccept,qEnd) :: newContext);
-          doEnter     here h qFront ((SimEnterAny   ,qEnd) :: newContext)
+          doEnterNull here h qFront ((SimEnterAccept,qEnd) :: newContext);     (* build special context for nullQ *)
+          doEnter     here h qFront ((SimEnterAny   ,qEnd) :: newContext)      (* dual Any context *)
         | Repeat r -> 
           begin
             if h.repA.(r.repDepth) <> 0 then failwith "impossible: doEnter.Repeat found non-zero h.repA(r.repDepth)";
@@ -270,9 +271,9 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
                        ; pPostTag = q.postTag
                        ; pContext = newContext }
         in
-        let s1 = Sexplib.Sexp.to_string_hum (HistoryID.sexp_of_t hid_key)
+(*        let s1 = Sexplib.Sexp.to_string_hum (HistoryID.sexp_of_t hid_key)
         and s2 = Sexplib.Sexp.to_string_hum (sexp_of_history postData.pHistory)
-        in Printf.printf "  OneChar (%d at %s)\n    OneChar %s\n    OneChar %s\n" patIndex (us c) s1 s2;
+        in Printf.printf "  OneChar (%d at %s)\n    OneChar %s\n    OneChar %s\n" patIndex (us c) s1 s2;*)
         tryInsertHistory hid_key postData
       | OneChar _ -> ()
   (* The OneChar hit above and tryInsertHistory below are the heart of traversing the tree *)
@@ -282,7 +283,7 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
       | Some oldData ->
         match compareHistory cr.tags oldData.pHistory postData.pHistory with
           | 1 -> m2 := HistMap.add ~key:hid_key ~data:postData !m2
-          | _ -> Printf.printf "   OneChar --discarded--"; ()
+          | _ -> (*Printf.printf "   OneChar --discarded--";*) ()
   in
   nextStep
 
@@ -311,7 +312,7 @@ let uWrap (cr : coreResult) (text : ustring) : o =
 
 let wrapSimStep (pattern : ustring) (text: ustring) : o =
   match (parseRegex pattern) with
-      Error err -> Printf.printf "Error: %s\n" err; []
+      Error err -> (*Printf.printf "Error: %s\n" err;*) []
     | Ok p -> let cr = toCorePattern p in uWrap cr text
 
 let kick s ts =

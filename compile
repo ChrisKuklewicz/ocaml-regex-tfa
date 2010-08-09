@@ -1,5 +1,5 @@
 rm *.o *.cmx
-for i in common.ml monoid.ml pattern.ml readPattern.ml whichTest.ml corePattern.ml simulate.ml  simStep.ml main.ml unitTest.ml unitTestStep.ml; do
+for i in common.ml monoid.ml pattern.ml readPattern.ml whichTest.ml corePattern.ml simulate.ml  simStep.ml main.ml unitTest.ml unitTestStep.ml testab.ml testnull.ml; do
     ocamlfind ocamlopt -pp "camlp4o -I `ocamlfind query type-conv`  -I `ocamlfind query sexplib` pa_type_conv.cmo pa_sexp_conv.cmo"  -I `ocamlfind query sexplib` -thread -package camomile,core,type-conv,sexplib  /Users/chrisk/local//godi/lib/ocaml/pkg-lib/sexplib/sexplib.cmx -c $i;
 done
 
@@ -10,4 +10,8 @@ ocamlfind ocamlopt -thread -o main -linkpkg -package camomile,core common.cmx mo
 ocamlfind ocamlopt -thread -o unitTest -linkpkg -package camomile,core common.cmx monoid.cmx pattern.cmx readPattern.cmx whichTest.cmx corePattern.cmx simulate.cmx unitTest.cmx
 
 ocamlfind ocamlopt -thread -o unitTestStep -linkpkg -package camomile,core common.cmx monoid.cmx pattern.cmx readPattern.cmx whichTest.cmx corePattern.cmx simulate.cmx  simStep.cmx unitTestStep.cmx
+
+ocamlfind ocamlopt -thread -o testab -linkpkg -package camomile,core common.cmx monoid.cmx pattern.cmx readPattern.cmx whichTest.cmx corePattern.cmx simulate.cmx  simStep.cmx testab.cmx
+
+ocamlfind ocamlopt -thread -o testnull -linkpkg -package camomile,core common.cmx monoid.cmx pattern.cmx readPattern.cmx whichTest.cmx corePattern.cmx simulate.cmx  simStep.cmx testnull.cmx
 
