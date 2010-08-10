@@ -68,6 +68,8 @@
    Only Store histories in ROneChar.  The step/pull operation will go in one sweep, passing
    histories up then down to new leaves or all the way up/forward to winning.
 
+   Belowis runPattern, a very quick and very dirty way to get this ticking.
+
 *)
 
 open Common
@@ -97,23 +99,29 @@ type runPattern =
 
 and runQ = { mutable active : bool
            ; mutable final : repMap
-           ; getR : runPattern
+           ; contTo : runQ continueTo
+           ; mutable getR : runPattern
            ; getQ : coreQ
            }
 
 let rNothing = { active = false
                ; final = RepMap.empty
+               ; contTo = ContRoot
                ; getR = RTest
                ; getQ = CorePattern.nothing }
 
-let rec convertCore = fun q ->
-  let rp = match q.unQ with
-      Or qs -> ROr (List.map convertCore qs)
-    | Seq (qFront,qEnd) -> RSeq (convertCore qFront, convertCore qEnd)
-    | Repeat r -> RRepeat (convertCore r.unRep)
-    | Test _ -> RTest
-    | OneChar _ -> let r = ref (RepMap.empty)
-                   in ROneChar r
-    | CaptureGroup cg -> RCaptureGroup (convertCore cg.subPat)
-  in
-  { rNothing with getR = rp ; getQ = q }
+let rec convertCore = fun (c : runQ continueTo) q ->
+  let self = { rNothing with getQ = q; contTo = c } in
+  let _ = match q.unQ with
+      Or qs -> self.getR <- ROr (List.map (convertCore(ContReturn self)) qs)
+    | Seq (qFront,qEnd) ->
+      let rEnd = convertCore c qEnd 
+      in self.getR <- RSeq (convertCore (ContEnter rEnd) qFront,rEnd)
+    | Repeat r -> self.getR <- RRepeat (convertCore (ContReturn self) r.unRep)
+    | Test _ -> self.getR <- RTest
+    | OneChar _ -> let r = ref (RepMap.empty) 
+                   in self.getR <- ROneChar r
+    | CaptureGroup cg -> self.getR <- RCaptureGroup (convertCore (ContReturn self) cg.subPat)
+  in self
+
+                                                                                                                                                
