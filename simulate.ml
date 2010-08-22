@@ -118,9 +118,9 @@ let rec simCP ?(prevIn=(-1,newline,0)) (cr : coreResult) (utf8string : ustring) 
   and root = cr.cp
   and indexAtEnd = if UTF8.length utf8string > 0 then UTF8.next utf8string (UTF8.last utf8string) else UTF8.first utf8string
   in
-  let startHistory = { tagA   = Array.make numTags     (-1)
-                     ; repA   = Array.make (1+cr.depth)  0
-                     ; orbitA = Array.make numTags      []
+  let startHistory = { tagA   = Array.make numTags      (-1)
+                     ; repA   = Array.make cr.depthCount  0
+                     ; orbitA = Array.make numTags       []
                      }
   and winners = ref []
   in

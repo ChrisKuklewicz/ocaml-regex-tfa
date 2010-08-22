@@ -74,6 +74,11 @@
 
 open Common
 open CorePattern
+open Simulate
+open WhichTest
+open CamomileLibrary
+
+type uchar = CamomileLibrary.UChar.t
 
 TYPE_CONV_PATH "SaveContext"
 
@@ -89,6 +94,18 @@ module RepMap = Core.Core_map.Make(RepID)
 
 type repMap = history RepMap.t
 
+let copyHistories hmap = RepMap.map ~f:copyHistory hmap
+
+(* The doTagTask never changes the repA field, so the key is stable *)
+let doTagTasks' i hmap tt = RepMap.iter ~f:(fun ~key:_ ~data:h -> doTagTask i h tt) hmap
+let doTagTasks i hmap tt = doTagTasks' i hmap tt; hmap
+
+(* The following must not change the repA field, so the key is stable *)
+let doNullTasks' i hmap tt = RepMap.iter ~f:(fun ~key:_ ~data:h -> ignore (doTasks i h tt)) hmap
+let doNullTasks i hmap tt = doNullTasks' i hmap tt; hmap
+
+(* Wrapping the pattern this way is needed so to isolate the mutability when the regular expression
+   is being used in multiple parallel searches *)
 type runPattern =
     ROr of runQ list
   | RSeq of runQ*runQ
@@ -100,28 +117,194 @@ type runPattern =
 and runQ = { mutable active : bool
            ; mutable final : repMap
            ; contTo : runQ continueTo
-           ; mutable getR : runPattern
+           ; mutable getP : runPattern
            ; getQ : coreQ
            }
 
 let rNothing = { active = false
                ; final = RepMap.empty
-               ; contTo = ContRoot
-               ; getR = RTest
+               ; contTo = ContRoot           (* XXX move this field to core pattern type *)
+               ; getP = RTest
                ; getQ = CorePattern.nothing }
 
 let rec convertCore = fun (c : runQ continueTo) q ->
   let self = { rNothing with getQ = q; contTo = c } in
   let _ = match q.unQ with
-      Or qs -> self.getR <- ROr (List.map (convertCore(ContReturn self)) qs)
+      Or qs -> self.getP <- ROr (List.map (convertCore (ContReturn self)) qs)
     | Seq (qFront,qEnd) ->
-      let rEnd = convertCore c qEnd 
-      in self.getR <- RSeq (convertCore (ContEnter rEnd) qFront,rEnd)
-    | Repeat r -> self.getR <- RRepeat (convertCore (ContReturn self) r.unRep)
-    | Test _ -> self.getR <- RTest
-    | OneChar _ -> let r = ref (RepMap.empty) 
-                   in self.getR <- ROneChar r
-    | CaptureGroup cg -> self.getR <- RCaptureGroup (convertCore (ContReturn self) cg.subPat)
+      let rEnd = convertCore c qEnd
+      in self.getP <- RSeq (convertCore (ContEnter rEnd) qFront,rEnd)
+    | Repeat r -> self.getP <- RRepeat (convertCore (ContReturn self) r.unRep)
+    | Test _ -> self.getP <- RTest
+    | OneChar _ -> let r = ref (RepMap.empty)
+                   in self.getP <- ROneChar r
+    | CaptureGroup cg -> self.getP <- RCaptureGroup (convertCore (ContReturn self) cg.subPat)
   in self
 
-                                                                                                                                                
+let convertQR q = convertCore ContRoot q
+
+type stepData = StepChar of (strIndex*uchar) | StepEnd of strIndex
+type simFeed = ( stepData -> history list )
+
+
+let runStep ?(prevIn=(-1,newline))  (cr : coreResult) : simFeed =
+  let bestHistory h1 h2 = if compareHistory cr.tags h1 h2 <= 0 then h1 else h2 in
+  let mergeRepMap = let f ~key:_ bOpt cOpt =
+                      match (bOpt,cOpt) with
+                          (None,None) -> None
+                        | (Some a,Some b) -> Some (bestHistory a b)
+                        | (_,None) -> bOpt
+                        | (None,_) -> cOpt
+                  in RepMap.merge ~f:f
+  in
+  let fromHistories = function
+    | [] -> RepMap.empty
+    | (h1::hs) ->
+      let alone = RepMap.singleton h1.repA h1
+      and alones = List.map (fun h -> RepMap.singleton h.repA h) hs
+      in List.fold_left mergeRepMap alone alones
+  in
+  let numTags = Array.length cr.tags
+  and root = convertQR cr.cp
+  in
+  let prev = ref prevIn
+  and startHistory = { tagA   = Array.make numTags      (-1)
+                     ; repA   = Array.make cr.depthCount  0
+                     ; orbitA = Array.make numTags       []
+                     }
+  in
+
+  let rec nextStep = function
+    | StepChar ((i,_c) as here) -> RepMap.data (dispatch (newSpark i) here root) (* XXX handle spark winning as special case *)
+    | StepEnd indexAtEnd ->
+      let thin = nullSpark indexAtEnd
+      and thick = dispatchEnd indexAtEnd root
+      in RepMap.data (mergeRepMap thick thin)
+
+  and newSpark i = let newHistory = copyHistory startHistory in
+                   let spark = RepMap.singleton newHistory.repA newHistory in
+                   doTagTasks i spark (0,TagTask)
+  and nullSpark indexAtEnd = let spark = doNullEnd indexAtEnd (newSpark indexAtEnd) root in
+                             doTagTasks indexAtEnd spark (1,TagTask);
+
+  and doNullEnd indexAtEnd hmap rIn = match getTaskList None rIn with
+      None -> RepMap.empty
+    | Some taskList -> doNullTasks indexAtEnd hmap taskList
+  and doNull (i,c) hmap rIn = match getTaskList (Some c) rIn with
+      None -> RepMap.empty
+    | Some taskList -> doNullTasks i (copyHistories hmap) taskList
+  and getTaskList optC rIn =
+    let (_,pc) = !prev in
+    let checkTest (test,(expect,_)) =
+      expect = (match test with
+          Test_BOL -> pc = newline
+        | Test_EOL ->
+          (match optC with
+              None -> true
+            | Some c -> c = newline))
+    in
+    let tryNull (testSet,_taskList) = 
+      match testSet with
+          AlwaysTrue -> true
+        | AlwaysFalse -> false
+        | CheckAll tests -> List.for_all checkTest (WhichTestMap.to_alist tests)
+    in 
+    let q = rIn.getQ in
+    match Core.Core_list.drop_while ~f:(fun x -> not (tryNull x)) q.nullQ with
+        [] -> None
+      | ((_testSet,taskList)::_) -> Some taskList
+
+  (* dispatchEnd fetches the stored states from OneChar and propagates to completion.
+     This never splits the history and thus is quite straightforward.
+  *)
+  and dispatchEnd indexAtEnd rIn =
+    let continue h =
+      forOpt rIn.getQ.postTag (fun tag -> doTagTasks' indexAtEnd h (tag,TagTask));
+      h
+    in
+    match rIn.getP with
+        ROr rs ->
+          let hs = List.map continue (List.map (dispatchEnd indexAtEnd) rs)
+          in List.fold_left mergeRepMap RepMap.empty hs
+      | RSeq (rFront,rEnd) -> 
+        let h1 = continue (doNullEnd indexAtEnd (dispatchEnd indexAtEnd rFront) rEnd)
+        and h2 = continue (dispatchEnd indexAtEnd rEnd)
+        in mergeRepMap h1 h2
+      | RRepeat rr -> 
+        (match rIn.getQ.unQ with
+            Repeat r ->
+              let exitRepeat history = 
+                begin
+                  doRepTask history (r.repDepth,LeaveRep);
+                  forOpt r.getOrbit (fun o -> doTagTask indexAtEnd history (o,LeaveOrbitTask));
+                  forOpt rIn.getQ.postTag (fun tag -> doTagTask indexAtEnd history (tag,TagTask));
+                  history
+                end
+              and continueHistory history =
+                forOpt rIn.getQ.postTag (fun tag -> doTagTask indexAtEnd history (tag,TagTask));
+                history
+              and nullTasks = getTaskList None rr
+              in
+              let processHistory history =
+                let soFar = history.repA.(r.repDepth) in
+                if soFar < r.lowBound
+                then match nullTasks with
+                    None -> None
+                  | Some taskList ->
+                    begin
+                      doRepTask history (r.repDepth,IncRep r.topCount);
+                      forList r.resetOrbits (fun o -> doTagTask indexAtEnd history (o,ResetOrbitTask));
+                      forOpt r.getOrbit (fun o -> doTagTask indexAtEnd history (o,LoopOrbitTask));
+                      let nullHistory = doTasks indexAtEnd history taskList in
+                      Some (continueHistory (exitRepeat nullHistory))
+                    end
+                else Some (continueHistory (exitRepeat history))
+              in
+              let childHistories = RepMap.data (dispatchEnd indexAtEnd rr) in
+              let doneHistories = Core.Core_list.filter_map childHistories ~f:processHistory 
+              in fromHistories doneHistories
+          | _ -> failwith "impossible")
+      | RTest -> RepMap.empty (* There is no stored state *)
+      | RCaptureGroup r -> 
+        (match rIn.getQ.unQ with
+            CaptureGroup cg -> let h = dispatchEnd indexAtEnd r in 
+                               doTagTasks' indexAtEnd h (cg.postSet,SetGroupStopTask);
+                               continue h
+          | _ -> failwith "impossible")
+      | ROneChar mRef -> continue (!mRef)
+  and dispatch incoming ((i,c) as here) rIn : repMap =
+    let outgoing = doNull here incoming rIn in
+    forOpt rIn.getQ.preTag (fun tag -> doTagTasks' i incoming (tag,TagTask));
+    let continue h =
+      forOpt rIn.getQ.postTag (fun tag -> doTagTasks' i h (tag,TagTask));
+      h
+    in
+    match rIn.getP with
+        ROr rs -> (* The "fun r ->" is needed to ensure side effect from copyHistories for each invocation *)
+          let hs = List.map continue (List.map (fun r -> dispatch (copyHistories incoming) here r) rs)
+          in List.fold_left mergeRepMap outgoing hs
+      | RSeq (rFront,rEnd) ->
+        let inEnd = doNull here incoming rFront in
+        let h1 = continue (doNull here (dispatch incoming here rFront) rEnd)
+        and h2 = continue (dispatch inEnd here rEnd)
+        in mergeRepMap outgoing (mergeRepMap h1 h2)
+      | RRepeat rr -> failwith "RRepeat"
+      | RTest -> outgoing
+      | RCaptureGroup r ->
+        (match rIn.getQ.unQ with
+            CaptureGroup cg ->
+              begin
+                forList cg.preReset (fun tag -> doTagTasks' i incoming (tag,ResetGroupStopTask));
+                let h = continue (dispatch incoming here r) in
+                doTagTasks' i h (cg.postSet,SetGroupStopTask);
+                mergeRepMap outgoing h
+              end
+          | _ -> failwith "impossible");
+      | ROneChar mRef -> 
+        let h = !mRef in
+        mRef := (match rIn.getQ.unQ with
+            OneChar (uc,_patIndex) when USet.mem c uc -> incoming
+          | OneChar _ -> RepMap.empty
+          | _ -> failwith "impossible");
+        continue h
+  in nextStep

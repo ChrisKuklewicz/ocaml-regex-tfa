@@ -73,9 +73,9 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
   and winners = ref []
   and m1 = ref HistMap.empty
   and m2 = ref HistMap.empty
-  and startHistory = { tagA   = Array.make numTags     (-1)
-                     ; repA   = Array.make (1+cr.depth)  0
-                     ; orbitA = Array.make numTags      []
+  and startHistory = { tagA   = Array.make numTags      (-1)
+                     ; repA   = Array.make cr.depthCount  0
+                     ; orbitA = Array.make numTags       []
                      }
   in
   let cycle here =
@@ -249,6 +249,7 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
       let newContext = (SimReturn NoNote,q) :: oldContext in                   (* build typical recursing context *)
       forOpt q.preTag (fun tag -> doTagTask i h (tag,TagTask));
       match q.unQ with
+          (* The "fun q ->" is needed to ensure side effect from copyHistories for each invokation *)
           Or qs -> forList qs (fun q -> doEnter here (copyHistory h) q newContext)
         | Seq (qFront,qEnd) ->
           doEnterNull here h qFront ((SimEnterAccept,qEnd) :: newContext);     (* build special context for nullQ *)

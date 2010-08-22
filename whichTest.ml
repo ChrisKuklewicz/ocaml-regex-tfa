@@ -21,6 +21,8 @@
 open Common
 open Monoid
 
+TYPE_CONV_PATH "WhichTest"
+
 type whichTest = 
     Test_BOL 
   | Test_EOL

@@ -136,7 +136,7 @@ with sexp
 type coreResult = { cp : coreQ
                   ; tags : tagOP array
                   ; groups : groupInfo array
-                  ; depth : int
+                  ; depthCount : int
                   }
 with sexp
 
@@ -249,11 +249,12 @@ let toCorePattern (patternIn) : coreResult =
         ; unQ = Seq (qFront,qEnd)
     }
   in
-  let rec repDepthRef = ref 0 (* simple enough to avoid using an OCaml object *)
-  and repMaxDepthRef = ref (-1)  (* negative indicates there are no repetitions *)
+  (* simple enough to avoid using an OCaml object *)
+  let rec repDepthRef = ref 0   (* zero indicates that the next repeition will use index zero *)
+  and repDepthCountRef = ref 0  (* zero indicates there are no repetitions *)
   and withRep lazyThunk =
     let myDepth = !repDepthRef in
-    repMaxDepthRef := max myDepth !repMaxDepthRef;
+    repDepthCountRef := max (1+myDepth) !repDepthCountRef;
     repDepthRef := 1+myDepth;
     let value = Lazy.force lazyThunk in
     repDepthRef := myDepth;
@@ -483,7 +484,7 @@ let toCorePattern (patternIn) : coreResult =
   { cp = coreP
   ; tags = Array.of_list (List.rev !tagOPsLog)
   ; groups = Array.of_list (List.rev !groupInfoLog)
-  ; depth = !repMaxDepthRef
+  ; depthCount = !repDepthCountRef
   }
 
 let kick s = let pe = parseRegex s in
