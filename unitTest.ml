@@ -1,5 +1,6 @@
 (* UnitTest.ml *)
 
+open Sexplib.Std
 open Common
 open ReadPattern
 open CorePattern

@@ -13,6 +13,7 @@
    Recognize "Seq" (...list of OneChar...) and compress?
 
 *)
+open Sexplib.Std
 open CamomileLibrary
 open Pattern
 open ReadPattern
@@ -66,8 +67,8 @@ with sexp
 
 let seeht ht = Sexplib.Sexp.to_string_hum (sexp_of_handleTag ht)
 
-let apply       = function | Apply tag -> Some tag        | _ -> None
-let asAdvice    = function | Apply tag -> Advice tag      | s -> s
+let apply    = function | Apply tag -> Some tag        | _ -> None
+let asAdvice = function | Apply tag -> Advice tag      | s -> s
 let toUpdate = function | Apply tag -> [(tag,TagTask)] | _ -> []
 (* let toPreUpdate = function | Apply tag -> [(tag,PreUpdate TagTask)] | _ -> [] *)
 
@@ -87,14 +88,14 @@ and capGroupQ = { parentGroup : groupIndex     (* from pattern PGroup's parentGI
                 ; myGroup : groupIndex         (* from pattern PGroup's thisGI *)
                 ; mutable preReset : tag list  (* flows up "via writer"? in second pass *)
                 ; mutable postSet : tag        (* flows up *)
-                ; subPat : coreQ               (* NOTE: this is not coreQ *) 
+                ; subPat : coreQ               (* NOTE: this is not corePattern *)
                 }
 
 (* repeatQ is still being designed *)
 and repeatQ = { lowBound : int            (* flows up *)
               ; optHiBound : int option   (* flows up *)
-              ; topCount : int            (* flows up *)
-              ; repDepth : int            (* flows down in state of first pass *)
+              ; topCount : int            (* flows up *) (* highest value needed to distinguish behavior *)
+              ; repDepth : int            (* flows down in state of first pass *) (* nesting depth of this repeatQ *)
               ; needsOrbit : bool         (* flows up *)
               ; mutable getOrbit : tag option  (* flows down in second pass *)
               ; mutable resetOrbits : tag list (* flows down in second pass *)
@@ -223,7 +224,8 @@ let orbitWrapNullView r optOrbit orbitResets oldNV =
 type appliedBoth = AppliedBoth (* Used instead of () : unit to ensure applyBoth is called in each branch *)
 
 let toCorePattern (patternIn) : coreResult =
-  (* combineOr is the only place where Or nodes are constructed *)
+  (* defined values and functions and operations used in FIRST PASS *)
+  (* combineOr is the only place where Or nodes are constructed, needs at least 2 kids. No side effects *)
   let combineOr firstChild secondChild restChildren =
     let children = firstChild::secondChild::restChildren in
     let lo = List.fold_left (fun t q -> min t (fst q.takes)) (fst firstChild.takes) (secondChild::restChildren)
@@ -238,7 +240,7 @@ let toCorePattern (patternIn) : coreResult =
              else WantsEither
            ; unQ = Or children
        }
-  (* combineSeq is the only place where Seq nodes are constructed *)
+  (* combineSeq is the only place where Seq nodes are constructed. No side effects. *)
   and combineSeq qFront qEnd =
     { nothing
       with takes = (fst qFront.takes + fst qEnd.takes
@@ -260,8 +262,8 @@ let toCorePattern (patternIn) : coreResult =
     repDepthRef := myDepth;
     (value,myDepth)
   (* Note: repDepthRef is not spoiled by order of execution of branches or pieces *)
-  (* XXX TODO : record max repDepth when running ? *)
   (* DEFINE THE FIRST PASS CONVERSION FROM pattern TO corePattern *)
+  (* doPattern is the entry point for the FIRST PASS *)
   and doPattern p =
     match p with
         [] ->  epsilon (* either fully empty pattern or open-close parenthesis pair () *)
@@ -280,40 +282,41 @@ let toCorePattern (patternIn) : coreResult =
     match e with
         PAtom a -> doAtom a patIndex
       | PAnchor a -> doAnchor a patIndex
-      | PRepeat (a,r) -> 
-        match r with
-            PQuest -> doElemAt (PRepeat (a,PBound (0,Some 1)),patIndex)
-          | PPlus -> doElemAt (PRepeat (a,PBound (1,None)),patIndex)
-          | PStar -> doElemAt (PRepeat (a,PBound (0,None)),patIndex)
-          | PBound (badI,_) when badI < 0 -> failwith (Printf.sprintf "invalid bound repetition {%i,_} at byte %i" badI patIndex)
-          | PBound (badI,Some badJ) when badI > badJ -> failwith (Printf.sprintf "invalid bound repetion {%i,%i} at byte %i" badI badJ patIndex)
-          | PBound (0,Some 0) -> epsilon
-          | PBound (0,Some 1) -> combineOr (doAtom a patIndex) epsilon []
-          | PBound (1,Some 1) -> doElemAt (PAtom a,patIndex)
-          | PBound (i,optJ) -> 
-            (* Only increment and use repDepth when there may be more than 1 repetition *)
-            let (q,myDepth) = withRep (lazy (doAtom a patIndex)) in
-            if cannotTake q then 
-              (* Since q cannot accept characters the myDepth increment had no effect during (doAtom a patIndex) *)
-              if i=0 then combineOr q epsilon [] else q
-            else
-              let lo = i*(fst q.takes)
-              and hi = liftOpt ( * ) optJ (snd q.takes) (* assert : neither j nor k can be Some 0 here *)
-              and needsOrbit = varies q.takes && q.childGroups in
-              { nothing
-                with takes = (lo,hi)
-                  ; childGroups = q.childGroups
-                  ; tagged = true
-                  ; wants = WantsBundle
-                  ; unQ = Repeat { lowBound = i
-                                 ; optHiBound = optJ
-                                 ; topCount = (match optJ with None -> 1+i | Some j -> j)
-                                 ; repDepth = myDepth
-                                 ; needsOrbit = needsOrbit
-                                 ; getOrbit = None  (* set below in addTags *)
-                                 ; resetOrbits = [] (* set below in addTags *)
-                                 ; unRep = q }
-              }
+      | PRepeat (a,r) -> doRepeat a r patIndex
+  and doRepeat a r patIndex =
+    match r with
+        PQuest -> doRepeat a (PBound (0,Some 1)) patIndex
+      | PPlus  -> doRepeat a (PBound (1,None))  patIndex
+      | PStar  -> doRepeat a (PBound (0,None))  patIndex
+      | PBound (badI,_) when badI < 0 -> failwith (Printf.sprintf "invalid bound repetition {%i,_} at byte %i" badI patIndex)
+      | PBound (badI,Some badJ) when badI > badJ -> failwith (Printf.sprintf "invalid bound repetion {%i,%i} at byte %i" badI badJ patIndex)
+      | PBound (0,Some 0) -> epsilon
+      | PBound (0,Some 1) -> combineOr (doAtom a patIndex) epsilon []
+      | PBound (1,Some 1) -> doAtom a patIndex
+      | PBound (i,optJ) -> 
+        (* Only increment and use repDepth when there may be more than 1 repetition *)
+        let (q,myDepth) = withRep (lazy (doAtom a patIndex)) in
+        if cannotTake q then 
+          (* Since q cannot accept characters the myDepth increment had no effect during (doAtom a patIndex) *)
+          if i=0 then combineOr q epsilon [] else q
+        else
+          let lo = i*(fst q.takes)
+          and hi = liftOpt ( * ) optJ (snd q.takes) (* assert : neither j nor k can be Some 0 here *)
+          and needsOrbit = varies q.takes && q.childGroups in
+          { nothing
+            with takes = (lo,hi)
+              ; childGroups = q.childGroups
+              ; tagged = true
+              ; wants = WantsBundle
+              ; unQ = Repeat { lowBound = i
+                             ; optHiBound = optJ
+                             ; topCount = (match optJ with None -> 1+i | Some j -> j)
+                             ; repDepth = myDepth
+                             ; needsOrbit = needsOrbit
+                             ; getOrbit = None  (* set below in addTags *)
+                             ; resetOrbits = [] (* set below in addTags *)
+                             ; unRep = q }
+          }
   and doAtom atom patIndex =
     let one s = { nothing
                   with takes = (1,Some 1)
@@ -328,6 +331,7 @@ let toCorePattern (patternIn) : coreResult =
       | PBracket (true,bs) -> one (USet.diff all_unicode (toUSet bs))
       | PGroup {parentGI=myParent;thisGI=myGI;subPattern=p} -> 
         let q = doPattern p in
+        (* this wraps a CaptureGroup around q *)
         { q
           with childGroups = true
             ; tagged = true
@@ -336,7 +340,7 @@ let toCorePattern (patternIn) : coreResult =
                                  ; myGroup = myGI
                                  ; preReset = []  (* set below in addTags *)
                                  ; postSet = (-1) (* set below in addTags *)
-                                 ; subPat = q }
+                                 ; subPat = q     (* original q = doPattern p *) }
         }
   and doAnchor anchor i =
     let test wt = { nothing
@@ -347,22 +351,24 @@ let toCorePattern (patternIn) : coreResult =
         PCarat -> test Test_BOL
       | PDollar -> test Test_EOL
   in
+  (* defined values and functions and operations used in SECOND PASS *)
   (* TODO: consider changing tag state into an OCaml object *)
-  let rec nextTagRef = ref 2
+  let rec nextTagRef = ref 2  (* tag 0 is start of whole pattern, tag 1 is end of whole pattern *)
   and tagOPsLog = ref [Maximize;Minimize] (* in reverse order, ends with tag 0 *)
   and uniq' msg op = let tag = !nextTagRef in
-                 begin
-                   nextTagRef := tag+1;
-                   tagOPsLog := op :: !tagOPsLog;
-(*                   Printf.printf "%s = %i\n" msg tag; *)
-                   tag
-                 end
+                     begin
+                       nextTagRef := tag+1;
+                       tagOPsLog := op :: !tagOPsLog;
+                       (* Printf.printf "%s = %i\n" msg tag; *)
+                       tag
+                     end
   and uniq msg = Apply (uniq' msg Maximize)
   and groupFlag () = uniq' "groupFlag" GroupFlag
-  and getOrMake = function 
+  and getOrMake = function
     | NoTag -> let t = uniq' "getOrMake" Maximize in (t,Apply t)
     | (Advice t as ht) | (Apply t as ht) -> (t,ht)
   (* TODO: consider changing orbit state into an OCaml object *)
+  (* orbitInfoLog is prepend-only, and this is done in makeOrbit *)
   and orbitInfoLog = ref []
   and makeOrbit () =
     let tag = uniq' "makeOrbit" Orbit in
@@ -375,6 +381,8 @@ let toCorePattern (patternIn) : coreResult =
     let orbitTags = take_append (newLength-origLength) !orbitInfoLog [] in
     (value,orbitTags)
   (* TODO: consider changing group info state into an OCaml object *)
+  (* groupInfoRef data is pushed and popped only by listenGroup.  This allows for clever nested use
+     of listenGroup to get immediate children's flagTag values. *)
   and groupInfoRef = ref [ [] ] (* Used  *)
   and groupInfoLog = ref [ ]     (* Used to accumulate all knowledge of groupInfo *)
   and pushGroup () = groupInfoRef := [] :: !groupInfoRef
@@ -393,6 +401,7 @@ let toCorePattern (patternIn) : coreResult =
     | (siblings :: ancestors) -> ( groupInfoRef := (groupInfo.flagTag :: siblings) :: ancestors
                                  ; groupInfoLog := groupInfo :: !groupInfoLog )
   (* DEFINE THE SECOND PASS MUTATION UPDATE OF corePattern *)
+  (* addTags is the entry point for the SECOND PASS *)
   and addTags q m1 m2 : appliedBoth =
     let acquire () = let ha = if q.tagged && (m1=NoTag) then uniq "acquire preTag" else m1 in
                      let hb = if q.tagged && (m2=NoTag) then uniq "acquire postTag" else m2 in
@@ -413,8 +422,9 @@ let toCorePattern (patternIn) : coreResult =
           makeGroup { parentIndex = cg.parentGroup; thisIndex = cg.myGroup
                     ; startTag = a; stopTag = b
                     ; flagTag = flag };
-          (* Note: makeGroup is done before addTags on child *)
+          (* Note: makeGroup above is done before addTags on child below *)
           let (AppliedBoth,childFlags) = listenGroups (lazy (addTags cg.subPat ha hb)) in
+          (* The immediate children's flagTag values will need to be reset when starting this group *)
           let resetGroupTags = flag::childFlags in
           let nullView = addGroupResetsToNullView resetGroupTags flag cg.subPat.nullQ in
 (*
@@ -423,6 +433,7 @@ let toCorePattern (patternIn) : coreResult =
 *)
           cg.preReset <- resetGroupTags;
           cg.postSet <- flag;
+          (* The design here is that CaptureGroup nodes own no preTag or postTag *)
           applyBoth NoTag NoTag nullView
         end
       | Seq (qFront,qEnd) ->
@@ -439,6 +450,7 @@ let toCorePattern (patternIn) : coreResult =
           in
           ignore (addTags qFront ha mid);
           ignore (addTags qEnd (asAdvice mid) hb);
+          (* The design here is that Seq nodes own no preTag or postTag *)
           applyBoth NoTag NoTag (seqNullViews qFront.nullQ qEnd.nullQ)
         end
       | Or qs -> (* qs will have length of at least two *)
@@ -478,16 +490,16 @@ let toCorePattern (patternIn) : coreResult =
         r.resetOrbits <- resetOrbitTags;
         applyBoth ha hb nullView
   in
-  let coreP = doPattern patternIn in
+  let coreP = doPattern patternIn (* FIRST PASS *) in
   (* let s = Sexplib.Sexp.to_string_hum (sexp_of_coreQ coreP) in Printf.printf "%s\n" s; *)
-  let AppliedBoth = addTags coreP (Advice 0) (Advice 1) in
+  let AppliedBoth = addTags coreP (Advice 0) (Advice 1) (* SECOND PASS *) in
   { cp = coreP
   ; tags = Array.of_list (List.rev !tagOPsLog)
   ; groups = Array.of_list (List.rev !groupInfoLog)
   ; depthCount = !repDepthCountRef
   }
 
-let kick s = let pe = parseRegex s in
+let kick e = let pe = parseRegex e in
              let cp = match pe with 
                  Error err -> Error err
                | Ok p -> Ok (p,toCorePattern p)

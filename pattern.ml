@@ -1,4 +1,5 @@
 (* pattern.ml defines the pattern type for storing parsed regular expression *)
+open Sexplib.Std
 open CamomileLibrary
 open UPervasives
 open Common

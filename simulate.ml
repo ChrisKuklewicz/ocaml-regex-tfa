@@ -9,6 +9,7 @@
   XXX todo: rewrite to emplot doTagTask and doRepTask
 *)
 
+open Sexplib.Std
 open CamomileLibrary
 open Common
 open WhichTest
@@ -21,25 +22,30 @@ TYPE_CONV_PATH "Simulate"
 
 let ignore = Pervasives.ignore
 
+(* notice is used in SimReturn to indicate whether another orbit loop is allowed *)
 type notice = NoNote | NoteNoLoop
 
-type simStack = SimReturn of notice | SimEnterAny | SimEnterAccept
+type simStack = SimReturn of notice (* context when descending tree *)
+                | SimEnterAny       (* context for doEnter sibling node or root node *)
+                | SimEnterAccept    (* context for doEnterNull sibling node *)
 
 let seeList xs = Sexplib.Sexp.to_string_hum (Sexplib.Conv.sexp_of_list Sexplib.Conv.sexp_of_int xs)
 
 let newline = UChar.of_char '\n'
 
-(* very simple way to comprehend utf8 input string *)
+(* very simple & inefficient way to comprehend utf8 input string *)
 let stringToList : ustring -> (strIndex*uchar) list = fun s ->
   let firstBytePos = UTF8.first s
   and lastBytePos = UTF8.last s in
-  let rec go acc bytePos = if bytePos <= lastBytePos 
+  let rec go acc bytePos = if bytePos <= lastBytePos
     then let nextBytePos = UTF8.next s bytePos
          in go ((bytePos,UTF8.look s bytePos) :: acc) nextBytePos
     else List.rev acc
   in
 (*  Printf.printf "stringToList %d %d %d\n" firstBytePos lastBytePos (UTF8.length s);*)
-  if UTF8.length s > 0 then go [] firstBytePos else []
+  if UTF8.length s > 0
+  then go [] firstBytePos
+  else []
 
 let rec comparePos a b = match (a,b) with
     ([],[]) -> 0
@@ -50,26 +56,36 @@ let rec comparePos a b = match (a,b) with
       | z -> z)
 
 (* Returns -1 if h1 is better than h2 and +1 if h2 is better than h1 and 0 for ties *)
-let compareHistory ops = 
+let compareHistory ops =
   let bound = Array.length ops in
-  (fun h1 h2 ->
-    if h1.repA <> h2.repA then 
+  fun h1 h2 ->
+    if h1.repA <> h2.repA  (* sanity check, this ought to be impossible *)
+    then
       let s1 = Sexplib.Sexp.to_string_hum (sexp_of_history h1)
       and s2 = Sexplib.Sexp.to_string_hum (sexp_of_history h2)
-      in failwith (Printf.sprintf "Simulate.compareHistory.compareOrbit found h1.repA <> h2.repA\nh1 is %s\nh2 is %s\n" s1 s2)
-    else let rec go i = if i < bound
-      then match ops.(i) with
-          Minimize -> (match compare h1.tagA.(i) h2.tagA.(i) with 0 -> go (1+i) | x -> x)
-        | Maximize -> (match compare h2.tagA.(i) h1.tagA.(i) with 0 -> go (1+i) | x -> x)
-        | GroupFlag -> go (1+i)
-        | Orbit -> (if h1.tagA.(i) <> h2.tagA.(i)
-          then failwith (Printf.sprintf "Simulate.compareHistory.compareOrbit at tag %d expected o1=o2 but %d<>%d\n"
-                           i  h1.tagA.(i) h2.tagA.(i))
-          else match comparePos (List.rev h1.orbitA.(i)) (List.rev h2.orbitA.(i)) with 0 -> go (1+i) | x -> x)
-      else 0
-    in go 0)
+      in failwith (Printf.sprintf "Simulate.compareHistory.compareOrbit found h1.repA <> h2.repA\n\
+                                   h1 is %s\n\
+                                   h2 is %s\n" s1 s2)
+    else
+      let rec go i =
+        if i < bound
+        then match ops.(i) with
+            Minimize -> (match compare h1.tagA.(i) h2.tagA.(i) with 0 -> go (1+i) | x -> x)
+          | Maximize -> (match compare h2.tagA.(i) h1.tagA.(i) with 0 -> go (1+i) | x -> x)
+          | GroupFlag -> go (1+i)
+          | Orbit ->
+            begin
+              if h1.tagA.(i) <> h2.tagA.(i)
+              then failwith (Printf.sprintf "Simulate.compareHistory.compareOrbit at tag %d expected o1=o2 but %d<>%d\n"
+                               i  h1.tagA.(i) h2.tagA.(i));
+              match comparePos (List.rev h1.orbitA.(i)) (List.rev h2.orbitA.(i)) with
+                  0 -> go (1+i)
+                | x -> x
+            end
+        else 0
+      in go 0
 
-let interpretGroups init (giA : groupInfo array) h : groupCap = 
+let interpretGroups init (giA : groupInfo array) h : groupCap =
   (* Printf.printf "tag array length %d\n" (Array.length h.tagA); *)
   (* Printf.printf "group length %d\n" (1+Array.length giA);*)
   let x = Array.create (1+Array.length giA) (-1,-1) in
@@ -86,47 +102,58 @@ let interpretGroups init (giA : groupInfo array) h : groupCap =
 
    Consider (Tag tag,TagTask) :: (Orbit tag, EnterOrbitTask) :: (Rep tag, LeaveRep) :: [] system
 *)
-(* tagA values start and are reset to (-1) *)
-(* orbitA values start and are reset to [] *)
+(* MAGIC VALUE: tagA values start and are reset to (-1) *)
+(* MAGIC VALUE: orbitA values start and are reset to [] *)
 let doTagTask i h (tag,tagTask) = match tagTask with
     TagTask -> h.tagA.(tag) <- i
 
+    (* tagA value evolves from -1 to 0 *)
   | ResetGroupStopTask -> h.tagA.(tag) <- (-1)
   | SetGroupStopTask   -> h.tagA.(tag) <-   0
 
+    (* tagA value evolves from -1 to 0 to 1 *)
   | ResetOrbitTask -> h.tagA.(tag) <- (-1); h.orbitA.(tag) <- []
   | EnterOrbitTask -> h.tagA.(tag) <-   0;  h.orbitA.(tag) <- []
   | LoopOrbitTask  ->                       h.orbitA.(tag) <- i :: h.orbitA.(tag)
   | LeaveOrbitTask -> h.tagA.(tag) <-   1;
     ()
 
-(* repA values start and are reset to 0 *)
+(* MAGIC VALUE: repA values start and are reset to 0 *)
 let doRepTask h (tag,repTask) = match repTask with
     IncRep topCount -> h.repA.(tag) <- min topCount (1+h.repA.(tag))
   | LeaveRep -> h.repA.(tag) <- 0
 
-let doTasks i h (tagTasks,repTasks) = 
+(* doTasks is used by the null matching code *)
+let doTasks i h (tagTasks,repTasks) =
   forList tagTasks (doTagTask i h);
   forList repTasks (doRepTask h);
   h
 
+(* MAGIC VALUE for prevIn *)
 let rec simCP ?(prevIn=(-1,newline,0)) (cr : coreResult) (utf8string : ustring) : (groupCap*history) list =
   let (piIn,pcIn,init) = prevIn in
   Printf.printf "simCP %d %d %s\n" piIn init utf8string;
   let xsTop = stringToList utf8string
+
   and numTags = Array.length cr.tags
+
   and root = cr.cp
-  and indexAtEnd = if UTF8.length utf8string > 0 then UTF8.next utf8string (UTF8.last utf8string) else UTF8.first utf8string
+
+  and indexAtEnd = if UTF8.length utf8string > 0
+    then UTF8.next utf8string (UTF8.last utf8string)
+    else UTF8.first utf8string
   in
+  (* MAGIC VALUE of (-1) and [] for content of initial startHistory entries *)
   let startHistory = { tagA   = Array.make numTags      (-1)
                      ; repA   = Array.make cr.depthCount  0
                      ; orbitA = Array.make numTags       []
                      }
+
   and winners = ref []
   in
   let rec dispatch prev rest h contextIn =
     (* dispatch is where the "here" first gets split from the "rest" of the text *)
-    (* dispatch is how the simulation walks _up_ or _sideways_ in the tree *)
+    (* dispatch is how the simulation walks either _up_ or _sideways_ in the tree *)
     (* dispatch is where all winning histories are noticed *)
     (* dispatch is where losing histories are discarded at the end of the text *)
     match contextIn with
@@ -135,34 +162,40 @@ let rec simCP ?(prevIn=(-1,newline,0)) (cr : coreResult) (utf8string : ustring) 
       | ((command,q)::context) ->
         match (rest,command) with
             ([]         , SimEnterAccept) -> ()
-          | ([]         , SimEnterAny)    -> doEnterEnd  prev indexAtEnd h q context
-          | ([]         , SimReturn note) -> doReturnEnd prev indexAtEnd h q context note
-          | (here::ahead, SimEnterAny)    -> doEnterNull prev here ahead h q context;
-                                             doEnter     prev here ahead h q context
-          | (here::ahead, SimEnterAccept) -> doEnter     prev here ahead h q context
-          | (here::ahead, SimReturn note) -> doReturn    prev here ahead h q context note
-        
-  and doWin post h = 
-    doTagTask post h (1,TagTask); 
-(*    let s = Sexplib.Sexp.to_string_hum (sexp_of_history h) in Printf.printf "doWin %s\n" s;*)
+          | ([]         , SimEnterAny)    -> doEnterNullEnd prev indexAtEnd h q context
+          | ([]         , SimReturn note) -> doReturnEnd    prev indexAtEnd h q context note
+          | (here::ahead, SimEnterAny)    -> doEnterNull    prev here ahead h q context;
+                                             doEnter        prev here ahead h q context
+          | (here::ahead, SimEnterAccept) -> doEnter        prev here ahead h q context
+          | (here::ahead, SimReturn note) -> doReturn       prev here ahead h q context note
+
+  and doWin post h =
+   (* let s = Sexplib.Sexp.to_string_hum (sexp_of_history h)
+      in Printf.printf "doWin %s\n" s;*)
+    doTagTask post h (1,TagTask);
     winners := h :: !winners
-  and doEnterEnd ((_,pc) as prev) post h q context =
-(*    let s = Sexplib.Sexp.to_string_hum (sexp_of_coreQ q) in Printf.printf "doEnterEnd %s\n" s; *)
+
+  and doEnterNullEnd ((_,pc) as prev) post h q context =
+    (* let s = Sexplib.Sexp.to_string_hum (sexp_of_coreQ q)
+       in Printf.printf "doEnterNullEnd %s\n" s; *)
     let checkTest (test,(expect,_)) =
       expect = (match test with
           Test_BOL -> pc = newline
         | Test_EOL -> true) in
-    let tryNull (testSet,taskList) = 
+    let tryNull (testSet,taskList) =
       let pass = match testSet with
           AlwaysTrue -> true
         | AlwaysFalse -> false
         | CheckAll tests -> List.for_all checkTest (WhichTestMap.to_alist tests)
-      in if pass then let hpass = doTasks post (copyHistory h) taskList
-                      in dispatch prev [] hpass context
+      in if pass
+        then let hpass = doTasks post (copyHistory h) taskList
+             in dispatch prev [] hpass context
         else ()
     in forList q.nullQ tryNull
+
   and doReturnEnd prev post h q context note =
-(*    let s = Sexplib.Sexp.to_string_hum (sexp_of_coreQ q) in Printf.printf "doReturnEnd %s\n" s; *)
+    (* let s = Sexplib.Sexp.to_string_hum (sexp_of_coreQ q)
+       in Printf.printf "doReturnEnd %s\n" s; *)
     let continue () =
       forOpt q.postTag (fun tag -> doTagTask post h (tag,TagTask));
       dispatch prev [] h context
@@ -176,7 +209,8 @@ let rec simCP ?(prevIn=(-1,newline,0)) (cr : coreResult) (utf8string : ustring) 
               doRepTask h (r.repDepth,IncRep r.topCount);
               forList r.resetOrbits (fun o -> doTagTask post h (o,ResetOrbitTask));
               forOpt r.getOrbit (fun o -> doTagTask post h (o,LoopOrbitTask));
-              doEnterEnd prev post h r.unRep ((SimReturn NoteNoLoop,q) :: context)
+              let returnContext = (SimReturn NoteNoLoop,q) :: context in
+              doEnterNullEnd prev post h r.unRep returnContext
             end
           else
             begin
@@ -184,93 +218,154 @@ let rec simCP ?(prevIn=(-1,newline,0)) (cr : coreResult) (utf8string : ustring) 
               forOpt r.getOrbit (fun o -> doTagTask post h (o,LeaveOrbitTask));
               continue ()
             end
-      | CaptureGroup cg -> doTagTask post h (cg.postSet,SetGroupStopTask); continue ()
+
+      | CaptureGroup cg ->
+        begin
+          doTagTask post h (cg.postSet,SetGroupStopTask);
+          continue ()
+        end
+
       | _ -> continue ()
+
   and doEnterNull ((_,pc) as prev) ((i,c) as here) ahead h q context =
     (* This does NOT mutate the history h *)
     let checkTest (test,(expect,_)) =
       expect = (match test with
           Test_BOL -> pc = newline
+
         | Test_EOL -> c = newline) in
     let tryNull (testSet,taskList) =
-      let pass = match testSet with 
+      let pass = match testSet with
           AlwaysTrue -> true
+
         | AlwaysFalse -> false
+
         | CheckAll tests -> List.for_all checkTest (WhichTestMap.to_alist tests)
       in if pass then let hpass = doTasks i (copyHistory h) taskList
                       in dispatch prev (here::ahead) hpass context
     in forList q.nullQ tryNull;
-  and doEnter prev ((i,c) as here) ahead h q oldContext =
-(*    let s = Sexplib.Sexp.to_string_hum (sexp_of_coreQ q) in Printf.printf "doEnter (%d,%s) %s\n" i (UPervasives.escaped_uchar c) s; *)
-    if (Some 0 = snd q.takes) then () else
-    let newContext = (SimReturn NoNote,q) :: oldContext in
-    forOpt q.preTag (fun tag -> doTagTask i h (tag,TagTask));
-    match q.unQ with
-        Or qs -> forList qs (fun q -> doEnter prev here ahead (copyHistory h) q newContext)
-      | Seq (qFront,qEnd) ->
-        doEnterNull prev here ahead h qFront ((SimEnterAccept,qEnd) :: newContext);
-        doEnter     prev here ahead h qFront ((SimEnterAny   ,qEnd) :: newContext)
-      | Repeat r -> 
-        begin
-(*          let soFar = h.repA.(r.repDepth) in*)
-(*          Printf.printf "doReturn (low %d) (depth %d) (count %d)\n" r.lowBound r.repDepth soFar;*)
-          if h.repA.(r.repDepth) <> 0 then failwith "impossible: doEnter.Repeat found non-zero h.repA(r.repDepth)";
-          doRepTask h (r.repDepth,IncRep r.topCount);
-          forList r.resetOrbits (fun o -> doTagTask i h (o,ResetOrbitTask));
-          forOpt r.getOrbit (fun o -> doTagTask i h (o,EnterOrbitTask));
-          doEnter prev here ahead h r.unRep newContext
-        end
-      | Test _ -> () (* unreachable *)
-      | OneChar (us,_) when USet.mem c us -> (*Printf.printf "++gulp++ %s\n" (UPervasives.escaped_uchar c);*)
-        dispatch here ahead h newContext
-      | OneChar _ -> (* Printf.printf "--fail-- %s\n" (UPervasives.escaped_uchar c); *) ()
-      | CaptureGroup cg -> 
-        forList cg.preReset (fun tag -> doTagTask i h (tag,ResetGroupStopTask));
-        doEnter prev here ahead h cg.subPat newContext
+
+  and doEnter prev ((i,c) as here) ahead h q context =
+    (* let s = Sexplib.Sexp.to_string_hum (sexp_of_coreQ q)
+       in Printf.printf "doEnter (%d,%s) %s\n" i (UPervasives.escaped_uchar c) s; *)
+    if (Some 0 = snd q.takes)
+    then ()  (* this is routinely possible *)
+    else
+      let returnContext = (SimReturn NoNote,q) :: context
+      in
+      forOpt q.preTag (fun tag -> doTagTask i h (tag,TagTask));
+      match q.unQ with
+          Or qs -> forList qs (fun q -> doEnter prev here ahead (copyHistory h) q returnContext)
+
+        | Seq (qFront,qBack) ->
+          begin
+            let acceptBackContext = (SimEnterAccept, qBack) :: returnContext in
+            doEnterNull prev here ahead h qFront acceptBackContext;
+            let anyBackContext = (SimEnterAny, qBack) :: returnContext in
+            doEnter prev here ahead h qFront anyBackContext
+          end
+
+        | Repeat r ->
+          begin
+            (* let soFar = h.repA.(r.repDepth) in*)
+            (* Printf.printf "doReturn (low %d) (depth %d) (count %d)\n" r.lowBound r.repDepth soFar;*)
+            if h.repA.(r.repDepth) <> 0
+            then failwith "impossible: doEnter.Repeat found non-zero h.repA(r.repDepth)"
+            else
+              begin
+                doRepTask h (r.repDepth,IncRep r.topCount);
+                forList r.resetOrbits (fun o -> doTagTask i h (o,ResetOrbitTask));
+                forOpt r.getOrbit (fun o -> doTagTask i h (o,EnterOrbitTask));
+                doEnter prev here ahead h r.unRep returnContext
+              end
+          end
+
+        | Test _ -> failwith "impossible: doEnter.Test should be unreachable" (* or just be value () *)
+
+        | OneChar (us,_) when USet.mem c us ->
+          (*Printf.printf "++gulp++ %s\n" (UPervasives.escaped_uchar c);*)
+          dispatch here ahead h returnContext
+
+        | OneChar _ ->
+          (* Printf.printf "--fail-- %s\n" (UPervasives.escaped_uchar c); *)
+          ()
+
+        | CaptureGroup cg ->
+          forList cg.preReset (fun tag -> doTagTask i h (tag,ResetGroupStopTask));
+          doEnter prev here ahead h cg.subPat returnContext
+
   and doReturn prev ((i,c) as here) ahead h q context note=
-(*    let s = Sexplib.Sexp.to_string_hum (sexp_of_coreQ q) in Printf.printf "doReturn (%d,%s) %s\n" i (UPervasives.escaped_uchar c) s;*)
+    (* let s = Sexplib.Sexp.to_string_hum (sexp_of_coreQ q)
+       in Printf.printf "doReturn (%d,%s) %s\n" i (UPervasives.escaped_uchar c) s;*)
     let continue hContinue =
       forOpt q.postTag (fun tag -> doTagTask i hContinue (tag,TagTask));
       dispatch prev (here::ahead) hContinue context
     in
     match q.unQ with
-        Repeat r -> 
+        Repeat r ->
           let soFar = h.repA.(r.repDepth) in
-          (* Printf.printf "doReturn (low %d) (depth %d) (count %d) (note %B)\n" r.lowBound r.repDepth soFar (note=NoteNoLoop);*)
-          if soFar<=0 then failwith "impossible: doReturn.Repeat found soFar <= 0";
-          let goLoop hLoop =
-            doRepTask hLoop (r.repDepth,IncRep r.topCount);
-            forList r.resetOrbits (fun o -> doTagTask i hLoop (o,ResetOrbitTask));
-            forOpt r.getOrbit (fun o -> doTagTask i hLoop (o,LoopOrbitTask));
-            doEnter prev here ahead hLoop r.unRep ((SimReturn NoNote,q) :: context)
-          and goLoopNull hLoop =
-            doRepTask hLoop (r.repDepth,IncRep r.topCount);
-            forList r.resetOrbits (fun o -> doTagTask i hLoop (o,ResetOrbitTask));
-            forOpt r.getOrbit (fun o -> doTagTask i hLoop (o,LoopOrbitTask));
-            doEnterNull prev here ahead hLoop r.unRep ((SimReturn NoteNoLoop,q) :: context)
-          and goLeave hLeave =
-            doRepTask hLeave (r.repDepth,LeaveRep);
-            forOpt r.getOrbit (fun o -> doTagTask i hLeave (o,LeaveOrbitTask));
-            continue hLeave
-          in
-          if note = NoteNoLoop then goLeave h
-          else if soFar < r.lowBound 
-          then (goLoopNull (copyHistory h); goLoop h)
+          (* Printf.printf "doReturn (low %d) (depth %d) (count %d) (note %B)\n"
+             r.lowBound r.repDepth soFar (note=NoteNoLoop);*)
+          if soFar<=0
+          then failwith "impossible: doReturn.Repeat found soFar <= 0"
           else
+            let goLoop hLoop =
+              doRepTask hLoop (r.repDepth,IncRep r.topCount);
+              forList r.resetOrbits (fun o -> doTagTask i hLoop (o,ResetOrbitTask));
+              forOpt r.getOrbit (fun o -> doTagTask i hLoop (o,LoopOrbitTask));
+              let returnContext = (SimReturn NoNote,q) :: context in
+              doEnter prev here ahead hLoop r.unRep returnContext
+
+            and goLoopNull hLoop =
+              doRepTask hLoop (r.repDepth,IncRep r.topCount);
+              forList r.resetOrbits (fun o -> doTagTask i hLoop (o,ResetOrbitTask));
+              forOpt r.getOrbit (fun o -> doTagTask i hLoop (o,LoopOrbitTask));
+              let returnContext = (SimReturn NoteNoLoop,q) :: context in
+              doEnterNull prev here ahead hLoop r.unRep returnContext
+
+            and goLeave hLeave =
+              doRepTask hLeave (r.repDepth,LeaveRep);
+              forOpt r.getOrbit (fun o -> doTagTask i hLeave (o,LeaveOrbitTask));
+              continue hLeave
+            in
             begin
-              match r.optHiBound with
-                  Some hi when soFar > hi -> failwith "impossible soFar > hi";
-                | Some hi when soFar = hi -> goLeave h
-                | _ -> goLeave (copyHistory h); goLoop h
+              match note with
+                  NoteNoLoop -> goLeave h
+                | NoNote -> if soFar < r.lowBound
+                  then
+                    begin
+                      goLoopNull (copyHistory h);
+                      goLoop h
+                    end
+                  else
+                    begin
+                      match r.optHiBound with
+                          Some hi when soFar > hi -> failwith "impossible soFar > hi";
+                        | Some hi when soFar = hi -> goLeave h
+                        | _ ->
+                          begin
+                            goLeave (copyHistory h);
+                            goLoop h
+                          end
+                    end
             end
-      | CaptureGroup cg -> doTagTask i h (cg.postSet,SetGroupStopTask); continue h
+
+      | CaptureGroup cg ->
+        doTagTask i h (cg.postSet,SetGroupStopTask);
+        continue h
+
       | _ -> continue h
   in
+  (* initialize implicit tag number 0 *)
   doTagTask 0 startHistory (0,TagTask);
+  (* start actually matching the text with dispatch *)
   ignore (dispatch (piIn,pcIn) xsTop startHistory [(SimEnterAny,root)]);
-  let answer = List.map (fun h -> (interpretGroups init cr.groups h,h)) (List.sort (compareHistory cr.tags) !winners) in
+  let answer = List.map (fun h -> (interpretGroups init cr.groups h,h))
+                        (List.sort (compareHistory cr.tags) !winners)
+  in
   match answer with
-      [] -> if UTF8.length utf8string = 0 then answer
+      [] -> if UTF8.length utf8string = 0
+        then answer
         else let first = UTF8.first utf8string in
              let second = UTF8.next utf8string (UTF8.first utf8string) in
              let shorter = Core.Core_string.drop_prefix utf8string (second-first) in
@@ -284,8 +379,10 @@ let seeSimResult ((gA,h) : (groupCap*history)) =
 
 let kick s ts =
   match (parseRegex s) with
-      Error err -> Printf.printf "Failed to parse: %s\nError message: %s\n" s err;
-    | Ok p -> 
+      Error err -> Printf.printf "Failed to parse: %s\n\
+                                  Error message: %s\n" s err;
+
+    | Ok p ->
       let cr = toCorePattern p in
       (* let s = Sexplib.Sexp.to_string_hum (sexp_of_coreResult cr) in Printf.printf "%s\n" s;*)
       forList ts (fun t->
@@ -299,23 +396,17 @@ let kick s ts =
       ()
 
 let test () =
-  begin
-    kick "(a*){2}(x)" ["x";"xx";"ax";"aax";"aaax";"aaaax"]
-  end
-
+  kick "(a*){2}(x)" ["x";"xx";"ax";"aax";"aaax";"aaaax"]
 
 let test2 () =
-  begin
-    kick "(a)(b*)(b{3})" ["a";"ab";"abb";"abbb";"abbbb";"abbbbb"];
-    kick "a(b|cd)*e" ["xae";"xxxabe";"xxxxacde";"xxxxxxabbe";"xxxxxxabcde";"xxxxxxxxacdbe"];
-    kick "a(b|cd)*e" ["abc";"ae";"abe";"acde";"abbe";"abcde";"acdbe"];
-    kick "(abcde|abc|de|ab|cde|a|bc|c)" ["abcde"];
-    kick "^(abc|de|ab|cde|a|bc|c)*$" ["abcde"];
-    kick "(abc|de|fg|a|bcd|efg|ab|cdef|g|d|cde|cd|ef)*" ["abcdefg"];  (* very good example *)
-    kick "^(abc|de|fg|a|bcd|efg|ab|cdef|g|d|cde|cd|ef)*$" ["abcdefg"];  (* very good example *)
-    kick "^((abc|de|fg|a|bcd|efg|ab|cdef|g|d|cde|cd|ef)*)*$" ["abcdefg"];  (* good example *)
-  end
-
+  kick "(a)(b*)(b{3})" ["a";"ab";"abb";"abbb";"abbbb";"abbbbb"];
+  kick "a(b|cd)*e" ["xae";"xxxabe";"xxxxacde";"xxxxxxabbe";"xxxxxxabcde";"xxxxxxxxacdbe"];
+  kick "a(b|cd)*e" ["abc";"ae";"abe";"acde";"abbe";"abcde";"acdbe"];
+  kick "(abcde|abc|de|ab|cde|a|bc|c)" ["abcde"];
+  kick "^(abc|de|ab|cde|a|bc|c)*$" ["abcde"];
+  kick "(abc|de|fg|a|bcd|efg|ab|cdef|g|d|cde|cd|ef)*" ["abcdefg"];  (* very good example *)
+  kick "^(abc|de|fg|a|bcd|efg|ab|cdef|g|d|cde|cd|ef)*$" ["abcdefg"];  (* very good example *)
+  kick "^((abc|de|fg|a|bcd|efg|ab|cdef|g|d|cde|cd|ef)*)*$" ["abcdefg"];  (* good example *)
 
 (*
 Pattern: (abc|de|fg|a|bcd|efg|ab|cdef|g|d|cde|cd|ef)*

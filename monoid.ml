@@ -1,5 +1,7 @@
 (* Monoid.ml *)
 
+(* This is currently used in whichtest.ml *)
+
 module type TYPE =
 sig
   type t

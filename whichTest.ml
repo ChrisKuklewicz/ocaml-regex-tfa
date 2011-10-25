@@ -18,18 +18,19 @@
    AlwaysTrue must be used.
 *)
 
+open Sexplib.Std
 open Common
 open Monoid
 
 TYPE_CONV_PATH "WhichTest"
 
+(* There are only two assertion tests in extended POSIX regular expressions.  More can be added
+   later by extended this whichTest enumeration, adding parsing capability, and adding testing code
+   to the engines. *)
 type whichTest = 
     Test_BOL 
   | Test_EOL
 with sexp
-
-exception Undefined
-let undefined () = raise Undefined
 
 module WhichTestCompare = struct
   type t = whichTest
@@ -48,10 +49,14 @@ with sexp
 type testSet = AlwaysTrue | AlwaysFalse | CheckAll of whichTestMap
 with sexp
 
+(* convenience method *)
 let singleTest (b,wt,i) = CheckAll (WhichTestMap.singleton wt (b,[i]))
 
+(* nullView is an important piece of corePattern/coreQ that determines how zero character qaccepting
+   possibilies are handled *)
 type nullView = (testSet*taskList) list with sexp
 
+(* SetFalse is used in the WhichTestMonoid below to short circuit some testing *)
 exception SetFalse
 
 module WhichTestMonoid =
@@ -69,7 +74,7 @@ module WhichTestMonoid =
               (_,None) -> optA
             | (None,_) -> optB
             | (Some (tf1,a),Some (tf2,b)) when tf1=tf2 -> Some (tf1,a @ b)
-          | _ -> raise SetFalse
+            | _ -> raise SetFalse (* no need to test the rest *)
         in
         try CheckAll (WhichTestMap.merge mergeWTM a b)
         with SetFalse -> AlwaysFalse

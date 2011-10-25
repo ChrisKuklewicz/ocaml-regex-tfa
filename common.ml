@@ -1,4 +1,7 @@
+(*pp camlp4o -I `ocamlfind query type-conv` -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma *)
 (* Common.ml *)
+
+open Sexplib.Std
 
 TYPE_CONV_PATH "Common"
 
@@ -21,10 +24,13 @@ type tagTask = TagTask (* Maximize or Minimize *)
                | LeaveOrbitTask  (* On leaving repeat *)
 with sexp
 type repTask = IncRep of int | LeaveRep with sexp
-type tagTasks = (tag*tagTask) list * (rep*repTask) list with sexp
-(* type 'a taskUpdate = PreUpdate of 'a | PostUpdate of 'a with sexp *)
+(* tagTask and repTask items commute: make them separate lists *)
 type taskList = (tag*tagTask) list * (rep*repTask) list with sexp
 type tagOP = Maximize | Minimize | Orbit | GroupFlag with sexp
+
+(* comment out unused things from Haskell *)
+(* type 'a taskUpdate = PreUpdate of 'a | PostUpdate of 'a with sexp *)
+(* type tagAction = SetPre | SetPost | SetVal of int *)
 
 (* When building the NFA a given node in the regexp tree may want to lead to an NFA state or a
    bundle of transitions or the node may not have a preference
@@ -34,25 +40,27 @@ type tagOP = Maximize | Minimize | Orbit | GroupFlag with sexp
 *)
 type wanted = WantsState | WantsBundle | WantsEither with sexp
 
-type tagAction = SetPre | SetPost | SetVal of int
-
-type orbitEntry = { inOrbit : bool
-                  ; basePos : strIndex
-                  ; ordinalVal : int option
-                  ; getOrbits : strIndex list
+(* orbitEntry, orbitLog, orbitTransformer are currently unused *)
+(*
+type orbitEntry = { inOrbit : bool             (* *)
+                  ; basePos : strIndex         (* *)
+                  ; ordinalVal : int option    (* for efficiency via sorting pass *)
+                  ; getOrbits : strIndex list  (* *)
                   }
 
 module IntMap = Core.Core_map.Make(Core.Core_int)
 type orbitLog = orbitEntry IntMap.t
 
 type orbitTransformer = orbitLog -> orbitLog
+*)
 
-
+(* convenience names for iterating *)
 let forList = Core.Core_list.iter
 let forOpt = Core.Option.iter
 let forArray = Core.Core_array.iter
 let forIArray f arr = Core.Core_array.iteri arr f
 
+(* The history of a given match possibility *)
 type history = { tagA : int array
                ; repA : int array
                ; orbitA : (int list) array
@@ -67,6 +75,9 @@ let copyHistory { tagA=a;repA=b;orbitA=c } = { tagA = Array.copy a
                                              ; orbitA = Array.copy c
                                              }
 
+let safeHistory h = fun () -> copyHistory h
+
+(* Used in saveContext as a concrete call stack *)
 type 'a continueTo = ContEnter of 'a | ContReturn of 'a | ContRoot
 with sexp
 
