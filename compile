@@ -1,17 +1,39 @@
-rm *.o *.cmx
-for i in common.ml monoid.ml pattern.ml readPattern.ml whichTest.ml corePattern.ml simulate.ml  simStep.ml main.ml unitTest.ml unitTestStep.ml testab.ml testnull.ml; do
-    ocamlfind ocamlopt -pp "camlp4o -I `ocamlfind query type-conv`  -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma"  -I `ocamlfind query sexplib` -thread -package camomile,core,type-conv,sexplib  /Users/chrisk/local//godi/lib/ocaml/pkg-lib/sexplib/sexplib.cmx -c $i;
+#!/bin/sh
+rm *.o *.cmx *.cmi *.cmo
+
+FILES="common.ml monoid.ml pattern.ml readPattern.ml whichTest.ml corePattern.ml simulate.ml simStep.ml simCont.ml main.ml unitTest.ml unitTestStep.ml unitTestCont.ml testab.ml testnull.ml"
+
+optPP_I="$(ocamlfind query -i-format type-conv) $(ocamlfind query -i-format sexplib)"
+optPP="camlp4o $optPP_I pa_type_conv.cma pa_sexp_conv.cma"
+optPACKAGE="camomile,core,type-conv,sexplib"
+#optI=$(ocamlfind query -i-format sexplib)
+#optL=$(ocamlfind query -l-format sexplib)
+
+compileFile () {
+    ocamlfind ocamlopt -thread -pp "$optPP" -package "$optPACKAGE" sexplib.cmx -c $1;
+}
+
+for i in $FILES; do
+    echo $i
+#    compileFile $i
+    echo ocamlfind ocamlopt -pp "camlp4o -I `ocamlfind query type-conv` -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma" -I `ocamlfind query sexplib` -thread -package camomile,core,type-conv,sexplib /Users/chrisk/local//godi/lib/ocaml/pkg-lib/sexplib/sexplib.cmxa -c $i;
+    ocamlfind ocamlopt -pp "camlp4o -I `ocamlfind query type-conv` -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma" -I `ocamlfind query sexplib` -thread -package camomile,core,type-conv,sexplib /Users/chrisk/local/godi/lib/ocaml/pkg-lib/sexplib/sexplib.cmxa -c $i;
 done
 
-# ocamlfind ocamlopt -pp "camlp4o -I `ocamlfind query type-conv`  -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma"  -I `ocamlfind query sexplib` -thread -package camomile,core,type-conv,sexplib  /Users/chrisk/local//godi/lib/ocaml/pkg-lib/sexplib/sexplib.cmx -c $i;
+# ocamlfind ocamlopt -pp "camlp4o -I `ocamlfind query type-conv` -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma" -I `ocamlfind query sexplib` -thread -package camomile,core,type-conv,sexplib /Users/chrisk/local//godi/lib/ocaml/pkg-lib/sexplib/sexplib.cmx -c $i;
 
-ocamlfind ocamlopt -thread -o main -linkpkg -package camomile,core common.cmx monoid.cmx pattern.cmx readPattern.cmx whichTest.cmx corePattern.cmx simulate.cmx simStep.cmx main.cmx
+libs="common.cmx monoid.cmx pattern.cmx readPattern.cmx whichTest.cmx corePattern.cmx simulate.cmx"
 
-ocamlfind ocamlopt -thread -o unitTest -linkpkg -package camomile,core common.cmx monoid.cmx pattern.cmx readPattern.cmx whichTest.cmx corePattern.cmx simulate.cmx unitTest.cmx
+ocamlfind ocamlopt -thread -o main -linkpkg -package "$optPACKAGE" $libs simStep.cmx main.cmx
 
-ocamlfind ocamlopt -thread -o unitTestStep -linkpkg -package camomile,core common.cmx monoid.cmx pattern.cmx readPattern.cmx whichTest.cmx corePattern.cmx simulate.cmx  simStep.cmx unitTestStep.cmx
+rm UnitTest
+ocamlfind ocamlopt -thread -o unitTest -linkpkg -package camomile,core,type-conv,sexplib common.cmx monoid.cmx pattern.cmx readPattern.cmx whichTest.cmx corePattern.cmx simulate.cmx unitTest.cmx
 
-ocamlfind ocamlopt -thread -o testab -linkpkg -package camomile,core common.cmx monoid.cmx pattern.cmx readPattern.cmx whichTest.cmx corePattern.cmx simulate.cmx  simStep.cmx testab.cmx
+ocamlfind ocamlopt -thread -o unitTestStep -linkpkg -package "$optPACKAGE" $libs simStep.cmx unitTestStep.cmx
 
-ocamlfind ocamlopt -thread -o testnull -linkpkg -package camomile,core common.cmx monoid.cmx pattern.cmx readPattern.cmx whichTest.cmx corePattern.cmx simulate.cmx  simStep.cmx testnull.cmx
+ocamlfind ocamlopt -thread -o unitTestCont -linkpkg -package "$optPACKAGE" $libs simStep.cmx simCont.cmx unitTestCont.cmx
+
+ocamlfind ocamlopt -thread -o testab -linkpkg -package "$optPACKAGE" $libs simStep.cmx testab.cmx
+
+ocamlfind ocamlopt -thread -o testnull -linkpkg -package "$optPACKAGE" $libs simStep.cmx testnull.cmx
 

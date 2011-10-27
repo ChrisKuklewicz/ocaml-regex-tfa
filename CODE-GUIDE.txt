@@ -128,3 +128,9 @@ The 0.5 pass is "spark" and this provides any zero-width winner before C.  This 
 The last pass is the "flush down" pass that is kin to the doEnter phase.  Each node has an optional incoming bundle.  The logic around Repeat nodes may get hairy, but hope endures.  This pass logically fills the appropriate OneChar and empties the intermediate nodes.
 
 The whole tree may be processed at first, then add flags to indicate which nodes need "flush up"/"flush down".  The nature of the tree pass is in patIndex order, so storing the history as a list and annotating the range of patIndex values under each node would serve as "flush up" flags.  The "flush down" occurance is both spark-driven and covers the "flush-up" nodes.
+
+-- --
+
+simCont.ml
+
+make the changes to simStep.ml needed to remove the context stack, with extra contTo field in the coreQ.  This was refreshingly easy after typing up this code guide.

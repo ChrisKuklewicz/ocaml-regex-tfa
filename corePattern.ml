@@ -14,6 +14,7 @@
 
 *)
 open Sexplib.Std
+open Sexplib.Sexp (*added looking for segfault*)
 open CamomileLibrary
 open Pattern
 open ReadPattern
@@ -43,7 +44,9 @@ let take_append n xsIn ending =
       (0,_) -> acc
     | (_,[]) -> acc
     | (_,(y::ys)) -> y :: go (y::acc) (i-1) ys
-  in if n <= 0 then ending else go ending n xsIn
+  in if n <= 0
+    then ending
+    else go ending n xsIn
 
 let liftOpt f a b = match (a,b) with
     (None,_) -> None
@@ -51,11 +54,16 @@ let liftOpt f a b = match (a,b) with
   | (Some a,Some b) -> Some (f a b)
 
 let pureRepeatOnto ending item = 
-  let rec go n = if n < 1 then ending else item :: go (n-1)
+  let rec go n = if n < 1
+    then ending
+    else item :: go (n-1)
   in go
 
 let thunkRepeatOnto ending thunk = 
-  let rec go n = if n < 1 then ending else let me = thunk () in me :: go (n-1)
+  let rec go n = if n < 1
+    then ending
+    else let me = thunk ()
+         in me :: go (n-1)
   in go
 
 (* Possible sub-module for handleTag *)
@@ -99,8 +107,14 @@ and repeatQ = { lowBound : int            (* flows up *)
               ; needsOrbit : bool         (* flows up *)
               ; mutable getOrbit : tag option  (* flows down in second pass *)
               ; mutable resetOrbits : tag list (* flows down in second pass *)
+              ; repAt : patIndex          (* useful for identifying this repeat for simFlush *)
               ; unRep : coreQ
               }
+
+(* contHow and contSpec added to support simCont.ml *)
+and contSpec = HowReturn of coreQ 
+               | HowReturnMidSeq of coreQ 
+               | HowRoot
 
 and coreQ = { takes : int * int option  (* flows up for use in first pass only *)
             ; childGroups : bool        (* flows up for use in first pass only *)
@@ -109,6 +123,7 @@ and coreQ = { takes : int * int option  (* flows up for use in first pass only *
             ; mutable preTag : tag option  (* flows down in second pass *)
             ; mutable postTag : tag option (* flows down in second pass *)
             ; mutable nullQ : nullView  (* flows up in second pass after down in second pass *)
+            ; mutable contTo : contSpec (* set by parent in first pass, used by simCont.ml *)
             ; unQ : corePattern         (* must be mutable to remove CaptureGroup from corePattern *)
             }
 with sexp
@@ -122,6 +137,7 @@ let nothing = { takes = (0,Some 0)
               ; preTag = None
               ; postTag = None
               ; nullQ = []
+              ; contTo = HowRoot
               ; unQ = Test AlwaysFalse (* This should always be overridden *)
               }
 let epsilon = { nothing with unQ = Test AlwaysTrue }
@@ -134,10 +150,10 @@ type groupInfo = { parentIndex : groupIndex
                  }
 with sexp
 
-type coreResult = { cp : coreQ
-                  ; tags : tagOP array
-                  ; groups : groupInfo array
-                  ; depthCount : int
+type coreResult = { cp : coreQ                 (* coreQ root node *)
+                  ; tags : tagOP array         (* what kind of tag each tag index is *)
+                  ; groups : groupInfo array   (* data for each parenthesized subgroup *)
+                  ; depthCount : int           (* count of deepest nesting of Repeat nodes *)
                   }
 with sexp
 
@@ -226,30 +242,43 @@ type appliedBoth = AppliedBoth (* Used instead of () : unit to ensure applyBoth 
 let toCorePattern (patternIn) : coreResult =
   (* defined values and functions and operations used in FIRST PASS *)
   (* combineOr is the only place where Or nodes are constructed, needs at least 2 kids. No side effects *)
+  let setCont parent child = child.contTo <- HowReturn parent in
   let combineOr firstChild secondChild restChildren =
     let children = firstChild::secondChild::restChildren in
     let lo = List.fold_left (fun t q -> min t (fst q.takes)) (fst firstChild.takes) (secondChild::restChildren)
     and hi = List.fold_left (fun t q -> liftOpt max t (snd q.takes)) (snd firstChild.takes) (secondChild::restChildren)
-    and anyChildGroups = List.exists (fun q -> q.childGroups) children
-    in { nothing
+    and anyChildGroups = List.exists (fun q -> q.childGroups) children in
+    let self = { nothing
          with takes = (lo,hi)
            ; childGroups = anyChildGroups
            ; tagged = varies (lo,hi) || anyChildGroups
-           ; wants =  if List.exists (fun q -> WantsState=q.wants) children then WantsState
-             else if List.exists (fun q -> WantsBundle=q.wants) children then WantsBundle
-             else WantsEither
+           ; wants =  if List.exists (fun q -> WantsState=q.wants) children
+             then WantsState
+             else 
+               if List.exists (fun q -> WantsBundle=q.wants) children
+               then WantsBundle
+               else WantsEither
            ; unQ = Or children
-       }
+       } in
+    forList children (setCont self);
+    self
+       
   (* combineSeq is the only place where Seq nodes are constructed. No side effects. *)
-  and combineSeq qFront qEnd =
-    { nothing
-      with takes = (fst qFront.takes + fst qEnd.takes
-                      ,liftOpt (+) (snd qFront.takes) (snd qEnd.takes))
-        ; childGroups = qFront.childGroups || qEnd.childGroups
-        ; tagged = varies qFront.takes && varies qEnd.takes
-        ; wants = if WantsEither=qEnd.wants then qFront.wants else qEnd.wants
-        ; unQ = Seq (qFront,qEnd)
-    }
+  and combineSeq qFront qBack =
+    let self = { nothing
+      with takes = (fst qFront.takes + fst qBack.takes
+                      ,liftOpt (+) (snd qFront.takes) (snd qBack.takes))
+        ; childGroups = qFront.childGroups || qBack.childGroups
+        ; tagged = varies qFront.takes && varies qBack.takes
+        ; wants = if WantsEither=qBack.wants
+          then qFront.wants
+          else qBack.wants
+        ; unQ = Seq (qFront,qBack)
+    } in
+    qFront.contTo <- HowReturnMidSeq self;
+    qBack.contTo <- HowReturn self;
+    self
+
   in
   (* simple enough to avoid using an OCaml object *)
   let rec repDepthRef = ref 0   (* zero indicates that the next repeition will use index zero *)
@@ -275,9 +304,8 @@ let toCorePattern (patternIn) : coreResult =
       | _ ->(* The "rev" below means fold_left is used below instead of fold_right *)
         match List.rev_map doElemAt (b::bs) with
             [] -> failwith "impossible corePattern doBranch"
-          | (lastChild::revChildren) -> List.fold_left
-            (fun qEnd qFront -> combineSeq qFront qEnd)
-            lastChild revChildren
+          | (lastChild::revChildren) ->
+            List.fold_left (fun qBack qFront -> combineSeq qFront qBack) lastChild revChildren
   and doElemAt (e,patIndex) =
     match e with
         PAtom a -> doAtom a patIndex
@@ -298,12 +326,14 @@ let toCorePattern (patternIn) : coreResult =
         let (q,myDepth) = withRep (lazy (doAtom a patIndex)) in
         if cannotTake q then 
           (* Since q cannot accept characters the myDepth increment had no effect during (doAtom a patIndex) *)
-          if i=0 then combineOr q epsilon [] else q
+          if i=0
+          then combineOr q epsilon []
+          else q
         else
           let lo = i*(fst q.takes)
           and hi = liftOpt ( * ) optJ (snd q.takes) (* assert : neither j nor k can be Some 0 here *)
           and needsOrbit = varies q.takes && q.childGroups in
-          { nothing
+          let self = { nothing
             with takes = (lo,hi)
               ; childGroups = q.childGroups
               ; tagged = true
@@ -315,8 +345,12 @@ let toCorePattern (patternIn) : coreResult =
                              ; needsOrbit = needsOrbit
                              ; getOrbit = None  (* set below in addTags *)
                              ; resetOrbits = [] (* set below in addTags *)
+                             ; repAt = patIndex
                              ; unRep = q }
-          }
+          } in
+          setCont self q;
+          self
+          
   and doAtom atom patIndex =
     let one s = { nothing
                   with takes = (1,Some 1)
@@ -332,7 +366,7 @@ let toCorePattern (patternIn) : coreResult =
       | PGroup {parentGI=myParent;thisGI=myGI;subPattern=p} -> 
         let q = doPattern p in
         (* this wraps a CaptureGroup around q *)
-        { q
+        let self = { q
           with childGroups = true
             ; tagged = true
             (* leave q.tagged alone as CaptureGroups sends same signal below *)
@@ -341,7 +375,10 @@ let toCorePattern (patternIn) : coreResult =
                                  ; preReset = []  (* set below in addTags *)
                                  ; postSet = (-1) (* set below in addTags *)
                                  ; subPat = q     (* original q = doPattern p *) }
-        }
+        } in
+        setCont self q;
+        self
+
   and doAnchor anchor i =
     let test wt = { nothing
                     with wants = WantsBundle
@@ -403,9 +440,15 @@ let toCorePattern (patternIn) : coreResult =
   (* DEFINE THE SECOND PASS MUTATION UPDATE OF corePattern *)
   (* addTags is the entry point for the SECOND PASS *)
   and addTags q m1 m2 : appliedBoth =
-    let acquire () = let ha = if q.tagged && (m1=NoTag) then uniq "acquire preTag" else m1 in
-                     let hb = if q.tagged && (m2=NoTag) then uniq "acquire postTag" else m2 in
-                     (ha,hb)
+    let acquire () =
+      let ha = if q.tagged && (m1=NoTag)
+        then uniq "acquire preTag"
+        else m1 
+      in 
+      let hb = if q.tagged && (m2=NoTag)
+        then uniq "acquire postTag"
+        else m2
+      in (ha,hb)
     and applyBoth a b newNullView : appliedBoth =
       q.preTag <- apply a;
       q.postTag <- apply b;
@@ -436,12 +479,12 @@ let toCorePattern (patternIn) : coreResult =
           (* The design here is that CaptureGroup nodes own no preTag or postTag *)
           applyBoth NoTag NoTag nullView
         end
-      | Seq (qFront,qEnd) ->
+      | Seq (qFront,qBack) ->
         begin
           let (ha,hb) = acquire () in
           let mid = match ( ha<>NoTag && cannotTake qFront
-                          , hb<>NoTag && cannotTake qEnd
-                          , qFront.tagged || qEnd.tagged
+                          , hb<>NoTag && cannotTake qBack
+                          , qFront.tagged || qBack.tagged
                           ) with
               (true,_,_) -> asAdvice ha 
             | (_,true,_) -> asAdvice hb
@@ -449,9 +492,9 @@ let toCorePattern (patternIn) : coreResult =
             | _ -> NoTag
           in
           ignore (addTags qFront ha mid);
-          ignore (addTags qEnd (asAdvice mid) hb);
+          ignore (addTags qBack (asAdvice mid) hb);
           (* The design here is that Seq nodes own no preTag or postTag *)
-          applyBoth NoTag NoTag (seqNullViews qFront.nullQ qEnd.nullQ)
+          applyBoth NoTag NoTag (seqNullViews qFront.nullQ qBack.nullQ)
         end
       | Or qs -> (* qs will have length of at least two *)
         begin
@@ -472,13 +515,16 @@ let toCorePattern (patternIn) : coreResult =
         end
       | Repeat r -> 
         let (ha,hb) = acquire () in
-        let optOrbit = if r.needsOrbit then Some (makeOrbit ()) else None in
+        let optOrbit = if r.needsOrbit
+          then Some (makeOrbit ())
+          else None in
         (* XXX try asAdvice hb instead of NoTag *)
         let (AppliedBoth,resetOrbitTags) = withOrbit (lazy (addTags r.unRep NoTag (asAdvice hb))) in
         (* A value in optOrbit is never included in resetOrbitTags *)
         let nullView =
           let childView =
-            if 0 < r.lowBound then r.unRep.nullQ
+            if 0 < r.lowBound
+            then r.unRep.nullQ
             else cleanNullView ( r.unRep.nullQ @ [(AlwaysTrue,([],[]))] )
           in orbitWrapNullView r optOrbit resetOrbitTags childView
         in
@@ -491,13 +537,16 @@ let toCorePattern (patternIn) : coreResult =
         applyBoth ha hb nullView
   in
   let coreP = doPattern patternIn (* FIRST PASS *) in
-  (* let s = Sexplib.Sexp.to_string_hum (sexp_of_coreQ coreP) in Printf.printf "%s\n" s; *)
+  (* let s = Sexplib.Sexp.to_string_hum (sexp_of_coreQ coreP) in Printf.printf "%s\n" s;*)
   let AppliedBoth = addTags coreP (Advice 0) (Advice 1) (* SECOND PASS *) in
-  { cp = coreP
-  ; tags = Array.of_list (List.rev !tagOPsLog)
-  ; groups = Array.of_list (List.rev !groupInfoLog)
-  ; depthCount = !repDepthCountRef
-  }
+  begin
+    coreP.contTo <- HowRoot;
+    { cp = coreP
+    ; tags = Array.of_list (List.rev !tagOPsLog)
+    ; groups = Array.of_list (List.rev !groupInfoLog)
+    ; depthCount = !repDepthCountRef
+    }
+  end
 
 let kick e = let pe = parseRegex e in
              let cp = match pe with 

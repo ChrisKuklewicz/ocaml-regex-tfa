@@ -76,8 +76,14 @@ let compareHistory ops =
           | Orbit ->
             begin
               if h1.tagA.(i) <> h2.tagA.(i)
-              then failwith (Printf.sprintf "Simulate.compareHistory.compareOrbit at tag %d expected o1=o2 but %d<>%d\n"
-                               i  h1.tagA.(i) h2.tagA.(i));
+              then (
+                let s1 = Sexplib.Sexp.to_string_hum (sexp_of_history h1)
+                and s2 = Sexplib.Sexp.to_string_hum (sexp_of_history h2)
+                in 
+                  failwith (Printf.sprintf "Simulate.compareHistory.compareOrbit at tag %d expected o1=o2 but %d<>%d here\n\
+                                   h1 is %s\n\
+                                   h2 is %s\n"
+                              i  h1.tagA.(i) h2.tagA.(i) s1 s2));
               match comparePos (List.rev h1.orbitA.(i)) (List.rev h2.orbitA.(i)) with
                   0 -> go (1+i)
                 | x -> x

@@ -86,7 +86,6 @@ let compareBC a b = compare (getBC a) (getBC b)
   PGroup capture to recurse, and it is impossible to repeat an anchor or another repetition.
 *)
 
-
 type atomPat =
     PDot
   | PEscape of uchar  (* Some escape sequences may be interpreted at a higher level *)
@@ -104,7 +103,6 @@ and elemAt = elemPat*patIndex         (* For debugging, records pattern index fo
 and branchPat = elemAt*(elemAt list)  (* Enforce non-empty branches *)
 and pattern = branchPat list          (* regular expression patterns may be empty *)
 with sexp
-
 
 let show_pattern patternIn =
   let buf = UTF8.Buf.create 15 in

@@ -43,11 +43,11 @@ TYPE_CONV_PATH "SimStep"
 let us = CamomileLibrary.UPervasives.escaped_uchar
 
 module HistoryID =
-struct
-  type t = (patIndex * int array) with sexp
-  type sexpable = t
-  let compare = compare
-end
+  struct
+    type t = (patIndex * int array) with sexp
+    type sexpable = t
+    let compare = compare
+   end
 
 module HistMap = Core.Core_map.Make(HistoryID)
 
@@ -64,6 +64,7 @@ type simFeed = ( stepData -> history list )
 
 let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
   let numTags = Array.length cr.tags
+  and numReps = cr.depthCount
   and root = cr.cp
   in
 
@@ -73,9 +74,9 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
   and winners = ref []
   and m1 = ref HistMap.empty
   and m2 = ref HistMap.empty
-  and startHistory = { tagA   = Array.make numTags      (-1)
-                     ; repA   = Array.make cr.depthCount  0
-                     ; orbitA = Array.make numTags       []
+  and startHistory = { tagA   = Array.make numTags (-1)
+                     ; repA   = Array.make numReps 0
+                     ; orbitA = Array.make numTags []
                      }
   in
   let cycle here =
@@ -99,6 +100,7 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
       (*pr "  _spark done_\n";*)
       HistMap.iter (process here) !m1;
       cycle here
+
     | StepEnd indexAtEnd -> 
       (*pr "StepEnd %d\n" indexAtEnd;*)
       sparkEnd indexAtEnd;
@@ -111,6 +113,7 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
   and process ((i,_c) as here) ~key:_ ~data:p =
     forOpt p.pPostTag (fun tag -> doTagTask i p.pHistory (tag,TagTask));
     dispatch here p.pHistory p.pContext
+
   and processEnd indexAtEnd ~key:_ ~data:p =
     forOpt p.pPostTag (fun tag -> doTagTask indexAtEnd p.pHistory (tag,TagTask));
     dispatchEnd indexAtEnd p.pHistory p.pContext
@@ -128,6 +131,7 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
               doEnter here h q context
             end
           | SimReturn note -> doReturn here h q context note
+
   and dispatchEnd indexAtEnd h context =
     match context with
         [] -> doWin indexAtEnd h
@@ -138,15 +142,15 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
           | SimReturn note -> doReturnEnd indexAtEnd h q context note;
 
   (* spark(End) turn out to be very simple wrappers for doEnter(Null|End) *)
-  and spark ((i,_) as here) =
-    let h = copyHistory startHistory
-    in doTagTask i h (0,TagTask);
-       doEnterNull here h root [];
-       doEnter here h root []
+  and spark ((i,_c) as here) =
+    let h = copyHistory startHistory in doTagTask i h (0,TagTask);
+    doEnterNull here h root [];
+    doEnter here h root []
+
   and sparkEnd indexAtEnd =
-    let h = copyHistory startHistory
-    in doTagTask indexAtEnd h (0,TagTask);
-       doEnterNullEnd indexAtEnd h root []
+    let h = copyHistory startHistory in
+    doTagTask indexAtEnd h (0,TagTask);
+    doEnterNullEnd indexAtEnd h root []
 
   and doWin i h =
     doTagTask i h (1,TagTask);
@@ -173,6 +177,7 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
       | ((_testSet,taskList)::_) ->
         let hpass = doTasks indexAtEnd (copyHistory h) taskList
         in dispatchEnd indexAtEnd hpass context
+
   and doReturnEnd indexAtEnd h q context note =
     let continue () =
       forOpt q.postTag (fun tag -> doTagTask indexAtEnd h (tag,TagTask));
@@ -198,7 +203,11 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
               continue ()
             end
 
-      | CaptureGroup cg -> doTagTask indexAtEnd h (cg.postSet,SetGroupStopTask); continue ()
+      | CaptureGroup cg ->
+        begin
+          doTagTask indexAtEnd h (cg.postSet,SetGroupStopTask);
+          continue ()
+        end
 
       | _ -> continue ()
 
@@ -232,7 +241,7 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
       match q.unQ with
           (* The "fun q ->" is needed to ensure side effect from copyHistory for each invocation *)
           Or qs -> forList qs (fun q -> doEnter here (copyHistory h) q returnContext)
-
+            
         | Seq (qFront,qBack) ->
           (* One can jump from qFront directly to to qBack *)
           (* build special context for nullQ *)
@@ -254,23 +263,25 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
 
         | Test _ -> failwith "impossible: doEnter.Test should be unreachable" (* or just be value () *)
 
-      | CaptureGroup cg ->
-        forList cg.preReset (fun tag -> doTagTask i h (tag,ResetGroupStopTask));
-        doEnter here h cg.subPat returnContext
+        | CaptureGroup cg ->
+          forList cg.preReset (fun tag -> doTagTask i h (tag,ResetGroupStopTask));
+          doEnter here h cg.subPat returnContext
+            
+        | OneChar (uc,patIndex) when USet.mem c uc ->
+          let hid_key = ((patIndex,h.repA) : HistoryID.t)
+          and postData = { pHistory = h
+                         ; pPostTag = q.postTag
+                         ; pContext = returnContext }
+          in
+          (* let s1 = Sexplib.Sexp.to_string_hum (HistoryID.sexp_of_t hid_key)
+             and s2 = Sexplib.Sexp.to_string_hum (sexp_of_history postData.pHistory)
+             in Printf.printf "  OneChar (%d at %s)\n    OneChar %s\n    OneChar %s\n" patIndex (us c) s1 s2; *)
+          tryInsertHistory hid_key postData
 
-      | OneChar (uc,patIndex) when USet.mem c uc ->
-        let hid_key = (patIndex,h.repA)
-        and postData = { pHistory = h
-                       ; pPostTag = q.postTag
-                       ; pContext = returnContext }
-        in
-        (* let s1 = Sexplib.Sexp.to_string_hum (HistoryID.sexp_of_t hid_key)
-           and s2 = Sexplib.Sexp.to_string_hum (sexp_of_history postData.pHistory)
-           in Printf.printf "  OneChar (%d at %s)\n    OneChar %s\n    OneChar %s\n" patIndex (us c) s1 s2; *)
-        tryInsertHistory hid_key postData
+        | OneChar _ -> ()
 
-      | OneChar _ -> ()
   (* The doEnter/OneChar hit above and tryInsertHistory below are the heart of traversing the tree *)
+
   and tryInsertHistory hid_key postData =
     match HistMap.find !m2 hid_key with
         None -> m2 := HistMap.add ~key:hid_key ~data:postData !m2
@@ -278,6 +289,7 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
         match compareHistory cr.tags oldData.pHistory postData.pHistory with
           | 1 -> m2 := HistMap.add ~key:hid_key ~data:postData !m2
           | _ -> (*Printf.printf "   OneChar --discarded--";*) ()
+
   and doReturn ((i,c) as here) h q context note =
     let continue hContinue =
       forOpt q.postTag (fun tag -> doTagTask i hContinue (tag,TagTask));
@@ -305,6 +317,9 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
             let returnContext = (SimReturn NoteNoLoop,q) :: context in
             doEnterNull here hLoop r.unRep returnContext
           and goLeave hLeave =
+            (* Can arrive here with soFar < r.lowBound by way of NoNote,goLoopNull,doEnterNull,dispatch,NoteNoLoop
+               This is okay since the LeaveRep task will change soFar to 0
+            *)
             doRepTask hLeave (r.repDepth,LeaveRep);
             forOpt r.getOrbit (fun o -> doTagTask i hLeave (o,LeaveOrbitTask));
             continue hLeave

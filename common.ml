@@ -23,6 +23,7 @@ type tagTask = TagTask (* Maximize or Minimize *)
                | ResetOrbitTask  (* After entry or loop entry to repeat *)
                | LeaveOrbitTask  (* On leaving repeat *)
 with sexp
+
 type repTask = IncRep of int | LeaveRep with sexp
 (* tagTask and repTask items commute: make them separate lists *)
 type taskList = (tag*tagTask) list * (rep*repTask) list with sexp
@@ -58,6 +59,7 @@ type orbitTransformer = orbitLog -> orbitLog
 let forList = Core.Core_list.iter
 let forOpt = Core.Option.iter
 let forArray = Core.Core_array.iter
+
 let forIArray f arr = Core.Core_array.iteri arr f
 
 (* The history of a given match possibility *)

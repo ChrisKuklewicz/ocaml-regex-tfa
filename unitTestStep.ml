@@ -1,4 +1,4 @@
-(* UnitTest.ml *)
+(* UnitTestStep.ml *)
 
 open Sexplib.Std
 open Common
@@ -73,4 +73,5 @@ let runAllTestFiles () =
   Core.In_channel.iter_lines ~fix_win_eol:true chan ~f:runTestFile;
   ();;
 
+Printf.printf "unitTestStep\n";;
 runAllTestFiles ();;

@@ -76,14 +76,12 @@ let simCont ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
         HowReturn q -> doReturn here h q
       | HowReturnMidSeq q -> doReturnMidSeq here h q
       | HowRoot -> doWin i h
-      | HowInvalid -> Printf.printf "impossible: HowInvalid\n"
 
   and dispatchEnd indexAtEnd h at =
     match at.contTo with
         HowReturn q -> doReturnEnd indexAtEnd h q
       | HowReturnMidSeq q -> doReturnMidSeqEnd indexAtEnd h q
       | HowRoot -> doWin indexAtEnd h
-      | HowInvalid -> Printf.printf "impossible: HowInvalid\n"
 
   and spark ((i,_c) as here) =
     let h = copyHistory startHistory in
@@ -336,3 +334,4 @@ let wrapSimCont (pattern : ustring) (text: ustring) : o =
   match (parseRegex pattern) with
       Error err -> (*Printf.printf "Error: %s\n" err;*) []
     | Ok p -> let cr = toCorePattern p in uWrapCont cr text
+
