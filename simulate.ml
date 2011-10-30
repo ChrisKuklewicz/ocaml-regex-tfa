@@ -113,11 +113,11 @@ let interpretGroups init (giA : groupInfo array) h : groupCap =
 let doTagTask i h (tag,tagTask) = match tagTask with
     TagTask -> h.tagA.(tag) <- i
 
-    (* tagA value evolves from -1 to 0 *)
+    (* tagA value evolves from -1 to 0 when group is fully captured *)
   | ResetGroupStopTask -> h.tagA.(tag) <- (-1)
   | SetGroupStopTask   -> h.tagA.(tag) <-   0
 
-    (* tagA value evolves from -1 to 0 to 1 *)
+    (* tagA value evolves from -1 to 0 when repeat is first entered, from 0 to 1 when it finally leaves *)
   | ResetOrbitTask -> h.tagA.(tag) <- (-1); h.orbitA.(tag) <- []
   | EnterOrbitTask -> h.tagA.(tag) <-   0;  h.orbitA.(tag) <- []
   | LoopOrbitTask  ->                       h.orbitA.(tag) <- i :: h.orbitA.(tag)

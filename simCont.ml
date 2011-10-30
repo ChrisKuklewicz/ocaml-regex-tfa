@@ -177,7 +177,8 @@ let simCont ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
             failwith "impossible: doEnter.Test should be unreachable" (* or just be value () *)
 
           | CaptureGroup cg ->
-            forList cg.preReset (fun tag -> doTagTask i h (tag,ResetGroupStopTask));
+            forList cg.preReset (fun tag ->
+              doTagTask i h (tag,ResetGroupStopTask));
             doEnter here h cg.subPat
               
           | OneChar (uc,patIndex) when USet.mem c uc ->

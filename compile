@@ -1,7 +1,7 @@
 #!/bin/sh
 rm *.o *.cmx *.cmi *.cmo
 
-FILES="common.ml monoid.ml pattern.ml readPattern.ml whichTest.ml corePattern.ml simulate.ml simStep.ml simCont.ml main.ml unitTest.ml unitTestStep.ml unitTestCont.ml testab.ml testnull.ml"
+FILES="common.ml monoid.ml pattern.ml readPattern.ml whichTest.ml corePattern.ml simulate.ml simStep.ml simCont.ml simFlush.ml main.ml unitTest.ml unitTestStep.ml unitTestCont.ml unitTestFlush.ml testab.ml testnull.ml"
 
 optPP_I="$(ocamlfind query -i-format type-conv) $(ocamlfind query -i-format sexplib)"
 optPP="camlp4o $optPP_I pa_type_conv.cma pa_sexp_conv.cma"
@@ -32,6 +32,8 @@ ocamlfind ocamlopt -thread -o unitTest -linkpkg -package camomile,core,type-conv
 ocamlfind ocamlopt -thread -o unitTestStep -linkpkg -package "$optPACKAGE" $libs simStep.cmx unitTestStep.cmx
 
 ocamlfind ocamlopt -thread -o unitTestCont -linkpkg -package "$optPACKAGE" $libs simStep.cmx simCont.cmx unitTestCont.cmx
+
+ocamlfind ocamlopt -thread -o unitTestFlush -linkpkg -package "$optPACKAGE" $libs simStep.cmx simCont.cmx simFlush.cmx unitTestFlush.cmx
 
 ocamlfind ocamlopt -thread -o testab -linkpkg -package "$optPACKAGE" $libs simStep.cmx testab.cmx
 

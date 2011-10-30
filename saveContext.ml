@@ -109,7 +109,7 @@ let doNullTasks i hmap tt = doNullTasks' i hmap tt; hmap
 (* Wrapping the pattern this way is needed so to isolate the mutability when the regular expression
    is being used in multiple parallel searches *)
 type runPattern =
-    ROr of runQ list
+  | ROr of runQ list
   | RSeq of runQ*(repMap ref)*runQ   (* Hold intermediate refMap between "pull" and "push" *)
   | RRepeat of (repMap ref)*runQ     (* Hold looping refMap between "pull" and "push" *)
   | RTest

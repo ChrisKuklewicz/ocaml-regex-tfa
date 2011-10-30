@@ -59,6 +59,7 @@ type orbitTransformer = orbitLog -> orbitLog
 let forList = Core.Core_list.iter
 let forOpt = Core.Option.iter
 let forArray = Core.Core_array.iter
+(* let mapOpt f o = Core.Option.map o ~f:f *)
 
 let forIArray f arr = Core.Core_array.iteri arr f
 
@@ -82,4 +83,3 @@ let safeHistory h = fun () -> copyHistory h
 (* Used in saveContext as a concrete call stack *)
 type 'a continueTo = ContEnter of 'a | ContReturn of 'a | ContRoot
 with sexp
-

@@ -41,7 +41,7 @@ let const a = fun _ -> a
 (* the first n elements of xsIn are prepended in reverse order onto the front of ending *)
 let take_append n xsIn ending =
   let rec go acc i xs = match (i,xs) with
-      (0,_) -> acc
+    | (0,_) -> acc
     | (_,[]) -> acc
     | (_,(y::ys)) -> y :: go (y::acc) (i-1) ys
   in if n <= 0
@@ -49,7 +49,7 @@ let take_append n xsIn ending =
     else go ending n xsIn
 
 let liftOpt f a b = match (a,b) with
-    (None,_) -> None
+  | (None,_) -> None
   | (_,None) -> None
   | (Some a,Some b) -> Some (f a b)
 
@@ -68,7 +68,7 @@ let thunkRepeatOnto ending thunk =
 
 (* Possible sub-module for handleTag *)
 
-type handleTag = NoTag            (* No tag at this boundary *)
+type handleTag = | NoTag            (* No tag at this boundary *)
                  | Advice of tag  (* tag at this boundary, applied at higher level in tree *)
                  | Apply of tag   (* tag at this boundary, may be applied at this node or passed to one child *)
 with sexp
@@ -84,8 +84,9 @@ let toUpdate = function | Apply tag -> [(tag,TagTask)] | _ -> []
 (* Experiment with replacing Empty constructor with (Test AlwaysTrue) *)
 (* Experiment with making OneChar hold a USet *)
 (* Experiment with Bound low,hi instead of Star *)
+
 type corePattern =
-    Or of coreQ list
+  | Or of coreQ list
   | Seq of coreQ*coreQ
   | Repeat of repeatQ
   | Test of testSet
@@ -99,7 +100,6 @@ and capGroupQ = { parentGroup : groupIndex     (* from pattern PGroup's parentGI
                 ; subPat : coreQ               (* NOTE: this is not corePattern *)
                 }
 
-(* repeatQ is still being designed *)
 and repeatQ = { lowBound : int            (* flows up *)
               ; optHiBound : int option   (* flows up *)
               ; topCount : int            (* flows up *) (* highest value needed to distinguish behavior *)
@@ -112,7 +112,7 @@ and repeatQ = { lowBound : int            (* flows up *)
               }
 
 (* contHow and contSpec added to support simCont.ml *)
-and contSpec = HowReturn of coreQ 
+and contSpec = | HowReturn of coreQ 
                | HowReturnMidSeq of coreQ 
                | HowRoot
 
@@ -170,7 +170,7 @@ let toUSet bs =
       let chr = Char.chr in
       let addRanges xs = List.fold_left (fun x (lo,hi) -> USet.add_range (u lo) (u hi) x) s xs in
       let ranges = match name with
-          "alnum" -> [('0','9');('a','z');('A','Z')]
+        | "alnum" -> [('0','9');('a','z');('A','Z')]
         | "digit" -> [('0','9')]
         | "punct" -> [(chr 33,chr 47);(chr 58, chr 64);(chr 91,chr 96);(chr 123,chr 126)]
         | "alpha" -> [('a','z');('A','Z')]
@@ -189,7 +189,7 @@ let toUSet bs =
   in List.fold_left addIt USet.empty bs
 
 let cannotTake = function q -> match q.takes with
-    (_,Some 0) -> true
+  | (_,Some 0) -> true
   | _ -> false
 
 (* This concatenation is not very efficient yet, and resetGroupTags starts with the same tag value
@@ -218,7 +218,7 @@ let seqNullViews s1 s2 =
 
 let tagWrapNullView ha hb oldNV =
   match (toUpdate ha,toUpdate hb) with
-      ([],[]) -> oldNV
+    | ([],[]) -> oldNV
     | (pre,post) -> let updatePair (oldTests,(oldTags,reps)) = (oldTests,(pre @ oldTags @ post,reps))
                     in List.map updatePair oldNV
 
@@ -226,7 +226,7 @@ let tagWrapNullView ha hb oldNV =
 let orbitWrapNullView r optOrbit orbitResets oldNV =
   let preROT = List.rev_map (fun t -> (t,ResetOrbitTask)) orbitResets in
   let (pre,post) = match optOrbit with
-      None -> (preROT,[])
+    | None -> (preROT,[])
     | Some o -> ((o,EnterOrbitTask) :: preROT,[(o,LeaveOrbitTask)])
   in
   let preRep = (r.repDepth,IncRep r.topCount)
@@ -295,34 +295,42 @@ let toCorePattern (patternIn) : coreResult =
   (* doPattern is the entry point for the FIRST PASS *)
   and doPattern p =
     match p with
-        [] ->  epsilon (* either fully empty pattern or open-close parenthesis pair () *)
+      | [] ->  epsilon (* either fully empty pattern or open-close parenthesis pair () *)
       | [b] -> doBranch b
       | (b1::b2::bs) -> combineOr (doBranch b1) (doBranch b2) (List.map doBranch bs)
   and doBranch (b,bs) =
     match bs with
-        [] -> doElemAt b
-      | _ ->(* The "rev" below means fold_left is used below instead of fold_right *)
+      | [] -> doElemAt b
+      | _ -> (* The "rev" below means fold_left is used below instead of fold_right *)
         match List.rev_map doElemAt (b::bs) with
-            [] -> failwith "impossible corePattern doBranch"
+          | [] -> failwith "impossible corePattern doBranch"
           | (lastChild::revChildren) ->
             List.fold_left (fun qBack qFront -> combineSeq qFront qBack) lastChild revChildren
   and doElemAt (e,patIndex) =
     match e with
-        PAtom a -> doAtom a patIndex
+      | PAtom a -> doAtom a patIndex
       | PAnchor a -> doAnchor a patIndex
       | PRepeat (a,r) -> doRepeat a r patIndex
   and doRepeat a r patIndex =
     match r with
-        PQuest -> doRepeat a (PBound (0,Some 1)) patIndex
+      (* syntactic sugar cases *)
+      | PQuest -> doRepeat a (PBound (0,Some 1)) patIndex
       | PPlus  -> doRepeat a (PBound (1,None))  patIndex
       | PStar  -> doRepeat a (PBound (0,None))  patIndex
-      | PBound (badI,_) when badI < 0 -> failwith (Printf.sprintf "invalid bound repetition {%i,_} at byte %i" badI patIndex)
-      | PBound (badI,Some badJ) when badI > badJ -> failwith (Printf.sprintf "invalid bound repetion {%i,%i} at byte %i" badI badJ patIndex)
+
+      (* invalid bounds cases *)
+      | PBound (badI,_) when badI < 0 ->
+        failwith (Printf.sprintf "invalid bound repetition {%i,_} at byte %i" badI patIndex)
+      | PBound (badI,Some badJ) when badI > badJ ->
+        failwith (Printf.sprintf "invalid bound repetion {%i,%i} at byte %i" badI badJ patIndex)
+
+      (* all cases with no more than a single repetition do not form a Repeat node *)
       | PBound (0,Some 0) -> epsilon
       | PBound (0,Some 1) -> combineOr (doAtom a patIndex) epsilon []
       | PBound (1,Some 1) -> doAtom a patIndex
-      | PBound (i,optJ) -> 
-        (* Only increment and use repDepth when there may be more than 1 repetition *)
+
+      (* This final case is certain that two repetitions are possible *)
+      | PBound (i,optJ) ->
         let (q,myDepth) = withRep (lazy (doAtom a patIndex)) in
         if cannotTake q then 
           (* Since q cannot accept characters the myDepth increment had no effect during (doAtom a patIndex) *)
@@ -330,6 +338,7 @@ let toCorePattern (patternIn) : coreResult =
           then combineOr q epsilon []
           else q
         else
+          (* Two repetitions that may accept characters is the only case that creates a Repeat node *)
           let lo = i*(fst q.takes)
           and hi = liftOpt ( * ) optJ (snd q.takes) (* assert : neither j nor k can be Some 0 here *)
           and needsOrbit = varies q.takes && q.childGroups in
@@ -358,7 +367,7 @@ let toCorePattern (patternIn) : coreResult =
                     ; unQ = OneChar (s,patIndex)
                 }
     in match atom with
-        PDot -> one all_unicode
+      | PDot -> one all_unicode
       | PEscape c -> one (USet.singleton c)
       | PChar c -> one (USet.singleton c)
       | PBracket (false,bs) -> one (toUSet bs)
@@ -385,7 +394,7 @@ let toCorePattern (patternIn) : coreResult =
                       ; unQ = Test (singleTest (true,wt,i))
                   }
     in match anchor with
-        PCarat -> test Test_BOL
+      | PCarat -> test Test_BOL
       | PDollar -> test Test_EOL
   in
   (* defined values and functions and operations used in SECOND PASS *)
@@ -424,7 +433,7 @@ let toCorePattern (patternIn) : coreResult =
   and groupInfoLog = ref [ ]     (* Used to accumulate all knowledge of groupInfo *)
   and pushGroup () = groupInfoRef := [] :: !groupInfoRef
   and popGroup () = match !groupInfoRef with
-      [] -> failwith "impossible corePattern popGroup"
+    | [] -> failwith "impossible corePattern popGroup"
     | (siblings :: ancestors) -> groupInfoRef := ancestors; siblings
   and listenGroups lazyThunk =
     begin
@@ -434,7 +443,7 @@ let toCorePattern (patternIn) : coreResult =
       (value,children)
     end
   and makeGroup groupInfo = match !groupInfoRef with
-      [] -> failwith "impossible corePattern makeGroup"
+    | [] -> failwith "impossible corePattern makeGroup"
     | (siblings :: ancestors) -> ( groupInfoRef := (groupInfo.flagTag :: siblings) :: ancestors
                                  ; groupInfoLog := groupInfo :: !groupInfoLog )
   (* DEFINE THE SECOND PASS MUTATION UPDATE OF corePattern *)
@@ -456,7 +465,7 @@ let toCorePattern (patternIn) : coreResult =
       AppliedBoth
     in
     match q.unQ with
-        OneChar _ -> applyBoth m1 m2 []
+      | OneChar _ -> applyBoth m1 m2 []
       | Test testSet -> applyBoth m1 m2  [(testSet,([],[]))]
       | CaptureGroup cg ->
         begin
@@ -486,7 +495,7 @@ let toCorePattern (patternIn) : coreResult =
                           , hb<>NoTag && cannotTake qBack
                           , qFront.tagged || qBack.tagged
                           ) with
-              (true,_,_) -> asAdvice ha 
+            | (true,_,_) -> asAdvice ha 
             | (_,true,_) -> asAdvice hb
             | (_,_,true) -> uniq "seq mid tag"
             | _ -> NoTag
@@ -550,12 +559,12 @@ let toCorePattern (patternIn) : coreResult =
 
 let kick e = let pe = parseRegex e in
              let cp = match pe with 
-                 Error err -> Error err
+               | Error err -> Error err
                | Ok p -> Ok (p,toCorePattern p)
              in begin
                Printf.printf "OUT: %s\n" (see pe);
                match cp with
-                   Ok (p1,{cp=p2;tags=at;groups=ag}) -> 
+                 | Ok (p1,{cp=p2;tags=at;groups=ag}) -> 
                      let s = Sexplib.Sexp.to_string_hum (Sexplib.Conv.sexp_of_array sexp_of_tagOP at) in Printf.printf "tagOP %s\n" s;
                      let s = Sexplib.Sexp.to_string_hum (Sexplib.Conv.sexp_of_array sexp_of_groupInfo ag) in Printf.printf "groupInfo %s\n" s;
                      let s = Sexplib.Sexp.to_string_hum (sexp_of_pattern p1) in Printf.printf "%s\n" s;
