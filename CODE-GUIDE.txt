@@ -134,3 +134,27 @@ The whole tree may be processed at first, then add flags to indicate which nodes
 simCont.ml
 
 make the changes to simStep.ml needed to remove the context stack, with extra contTo field in the coreQ.  This was refreshingly easy after typing up this code guide.
+
+-- -- 
+
+simFlush.ml
+
+Use a runPattern that stores the data across the tree instead of a history map.  Do two partial traversals of the tree for each step.
+
+-- --
+
+Next versions should implement pre-comparison to do compression of loop histories, and should implement earliest-history tracking to allow for streaming return of disjoint matches.  The efficiency of the system looks pretty good, the early merging of histories in simFlush may keep the simCont worst case at bay.
+
+Another enhancements will be to pass in just characters without the index attached to each one.
+
+The Haskell code is parameterized to work on different input streams, and the Ocaml could use a module functor interface to handle different input sources.
+
+The Haskell code has engines for combinations of "front-anchored" and "non-capturing" or "testing".  The anchor testing can be either singleline or multiline, which can be a module functor parameter in OCaml.
+
+For testing, I should make a system for checking multiple matches, going back to simulate.ml for the answer generation.  Speed testing and comparison to Haskell regex-tdfa are also interesting.
+
+In the longest run, making a byte-processing version that converts the pattern to UTF-8 would be interesting (compare with Russ Cox's re2).
+
+In other realms, making an OCaml inspired port back to Haskell or on to C/C++/Java/Fortran...
+
+Another optimization: make orbit log storage be indexed by something less sparse than the getOrbit (Some o) tag.  Perhaps there is a map from getOrbit to the RRepeat node which holds the orbit log?  No. There is a need to copy the orbitlog with the history.

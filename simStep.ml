@@ -64,7 +64,6 @@ type simFeed = ( stepData -> history list )
 
 let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
   let numTags = Array.length cr.tags
-  and numReps = cr.depthCount
   and root = cr.cp
   in
 
@@ -75,8 +74,8 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
   and m1 = ref HistMap.empty
   and m2 = ref HistMap.empty
   and startHistory = { tagA   = Array.make numTags (-1)
-                     ; repA   = Array.make numReps 0
-                     ; orbitA = Array.make numTags []
+                     ; repA   = Array.make cr.depthCount 0
+                     ; orbitA = Array.make cr.orbitCount []
                      }
   in
   let cycle here =
@@ -185,13 +184,14 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
     in
     match q.unQ with
         Repeat r ->
-          let soFar = h.repA.(r.repDepth) in
+          let soFar = h.repA.(r.repDepth) 
+          and doOrbit task = (fun (t,o) -> doOrbitTask indexAtEnd h (t,o,task)) in
           if (note = NoNote) && (soFar < r.lowBound)
           then
             begin
               doRepTask h (r.repDepth,IncRep r.topCount);
-              forList r.resetOrbits (fun o -> doTagTask indexAtEnd h (o,ResetOrbitTask));
-              forOpt r.getOrbit (fun o -> doTagTask indexAtEnd h (o,LoopOrbitTask));
+              forList r.resetOrbits (doOrbit ResetOrbitTask);
+              forOpt r.getOrbit (doOrbit LoopOrbitTask);
               (* build special context for nullQ *)
               let returnContext = (SimReturn NoteNoLoop,q) :: context in
               doEnterNullEnd indexAtEnd h r.unRep returnContext
@@ -199,7 +199,7 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
           else
             begin
               doRepTask h (r.repDepth,LeaveRep);
-              forOpt r.getOrbit (fun o -> doTagTask indexAtEnd h (o,LeaveOrbitTask));
+              forOpt r.getOrbit (doOrbit LeaveOrbitTask);
               continue ()
             end
 
@@ -252,12 +252,13 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
           doEnter here h qFront anyBackContext;  (* store simEnterAny into history stack, later doEnterNull and doEnter *)
 
         | Repeat r ->
+          let doOrbit task = (fun (t,o) -> doOrbitTask i h (t,o,task)) in
           begin
             if h.repA.(r.repDepth) <> 0
             then failwith "impossible: doEnter.Repeat found non-zero h.repA.(r.repDepth)";
             doRepTask h (r.repDepth,IncRep r.topCount);
-            forList r.resetOrbits (fun o -> doTagTask i h (o,ResetOrbitTask));
-            forOpt r.getOrbit (fun o -> doTagTask i h (o,EnterOrbitTask));
+            forList r.resetOrbits (doOrbit ResetOrbitTask);
+            forOpt r.getOrbit (doOrbit EnterOrbitTask);
             doEnter here h r.unRep returnContext
           end
 
@@ -297,12 +298,13 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
     in
     match q.unQ with
         Repeat r ->
-          let soFar = h.repA.(r.repDepth) in
+          let soFar = h.repA.(r.repDepth)
+          and doOrbit h' task = (fun (t,o) -> doOrbitTask i h' (t,o,task)) in
           if soFar<=0 then failwith "impossible: doReturn.Repeat found soFar <= 0";
           let goLoop hLoop =
             doRepTask hLoop (r.repDepth,IncRep r.topCount);
-            forList r.resetOrbits (fun o -> doTagTask i hLoop (o,ResetOrbitTask));
-            forOpt r.getOrbit (fun o -> doTagTask i hLoop (o,LoopOrbitTask));
+            forList r.resetOrbits (doOrbit hLoop ResetOrbitTask);
+            forOpt r.getOrbit (doOrbit hLoop LoopOrbitTask);
             (* This is where recursion happens: doReturn into doEnter *)
             (* Note that is replaces the just popped (SimReturn NoNote,q) *)
             (* build typical recursing context *)
@@ -310,8 +312,8 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
             doEnter here hLoop r.unRep returnContext
           and goLoopNull hLoop =
             doRepTask hLoop (r.repDepth,IncRep r.topCount);
-            forList r.resetOrbits (fun o -> doTagTask i hLoop (o,ResetOrbitTask));
-            forOpt r.getOrbit (fun o -> doTagTask i hLoop (o,LoopOrbitTask));
+            forList r.resetOrbits (doOrbit hLoop ResetOrbitTask);
+            forOpt r.getOrbit (doOrbit hLoop LoopOrbitTask);
             (* This is not acutal recursion, just r.unRep.nullQ *)
             (* build special context for nullQ *)
             let returnContext = (SimReturn NoteNoLoop,q) :: context in
@@ -321,7 +323,7 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
                This is okay since the LeaveRep task will change soFar to 0
             *)
             doRepTask hLeave (r.repDepth,LeaveRep);
-            forOpt r.getOrbit (fun o -> doTagTask i hLeave (o,LeaveOrbitTask));
+            forOpt r.getOrbit (doOrbit hLeave LeaveOrbitTask);
             continue hLeave
           in
           begin

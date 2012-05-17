@@ -13,21 +13,34 @@ type strIndex = int with sexp
    related task is activated.  This can be done before or after updating the input position when a
    transition is being made. *)
 type tag = int with sexp
+type orbit = int with sexp
 type rep = int with sexp
 
 type tagTask = TagTask (* Maximize or Minimize *)
                | ResetGroupStopTask (* GroupFlag *)
                | SetGroupStopTask   (* GroupFlag *)
-               | EnterOrbitTask  (* On entry to repeat *)
-               | LoopOrbitTask   (* Loop from end to start of repeat *)
-               | ResetOrbitTask  (* After entry or loop entry to repeat *)
-               | LeaveOrbitTask  (* On leaving repeat *)
 with sexp
 
-type repTask = IncRep of int | LeaveRep with sexp
+type orbitTask = EnterOrbitTask  (* On entry to repeat *)
+                 | LoopOrbitTask   (* Loop from end to start of repeat *)
+                 | ResetOrbitTask  (* After entry or loop entry to repeat *)
+                 | LeaveOrbitTask  (* On leaving repeat *)
+with sexp
+
+type repTask = IncRep of int 
+               | LeaveRep 
+with sexp
+
 (* tagTask and repTask items commute: make them separate lists *)
-type taskList = (tag*tagTask) list * (rep*repTask) list with sexp
-type tagOP = Maximize | Minimize | Orbit | GroupFlag with sexp
+type taskList = { tlTag : (tag*tagTask) list
+                ; tlOrbit : (rep*orbit*orbitTask) list
+                ; tlRep : (rep*repTask) list }
+with sexp
+
+let emptyTaskList = { tlTag = []; tlOrbit = []; tlRep = [] };
+
+(* The int with Orbit is an array index *)
+type tagOP = Maximize | Minimize | Orbit of int | GroupFlag with sexp
 
 (* comment out unused things from Haskell *)
 (* type 'a taskUpdate = PreUpdate of 'a | PostUpdate of 'a with sexp *)
@@ -66,7 +79,7 @@ let forIArray f arr = Core.Core_array.iteri arr f
 (* The history of a given match possibility *)
 type history = { tagA : int array
                ; repA : int array
-               ; orbitA : (int list) array
+               ; orbitA : (int list) array (* inefficient *)
                }
 with sexp
 

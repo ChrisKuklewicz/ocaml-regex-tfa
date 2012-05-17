@@ -105,8 +105,8 @@ and repeatQ = { lowBound : int            (* flows up *)
               ; topCount : int            (* flows up *) (* highest value needed to distinguish behavior *)
               ; repDepth : int            (* flows down in state of first pass *) (* nesting depth of this repeatQ *)
               ; needsOrbit : bool         (* flows up *)
-              ; mutable getOrbit : tag option  (* flows down in second pass *)
-              ; mutable resetOrbits : tag list (* flows down in second pass *)
+              ; mutable getOrbit : (tag*orbit) option  (* flows down in second pass *)
+              ; mutable resetOrbits : (tag*orbit) list (* flows down in second pass *)
               ; repAt : patIndex          (* useful for identifying this repeat for simFlush *)
               ; unRep : coreQ
               }
@@ -151,9 +151,10 @@ type groupInfo = { parentIndex : groupIndex
 with sexp
 
 type coreResult = { cp : coreQ                 (* coreQ root node *)
-                  ; tags : tagOP array         (* what kind of tag each tag index is *)
-                  ; groups : groupInfo array   (* data for each parenthesized subgroup *)
-                  ; depthCount : int           (* count of deepest nesting of Repeat nodes *)
+                  ; tags : tagOP array         (* what kind of tag each tag index is, length is number of tags *)
+                  ; groups : groupInfo array   (* data for each parenthesized subgroup, length is number of groups *)
+                  ; orbitCount : int           (* count of Repat nodes under 'cp' that need an orbit log *)
+                  ; depthCount : int           (* count of deepest nesting of Repeat nodes under 'cp' *)
                   }
 with sexp
 
@@ -183,7 +184,7 @@ let toUSet bs =
         | "print" -> [(chr 32,chr 126)]
         | "xdigit"-> [('0','9');('a','f');('A','F')]
         | "word"  -> [('0','9');('a','z');('A','Z');('_','_')]
-        | _ -> failwith "invalid character class"
+        | _ -> failwith "impossible invalid character class"
       in addRanges ranges
     | BPSet (BEquivClassElem c) -> USet.add c s
   in List.fold_left addIt USet.empty bs
@@ -197,11 +198,13 @@ let cannotTake = function q -> match q.takes with
 let addGroupResetsToNullView resetGroupTags setGroupTag nvs =
   let resetSome = List.map (fun tag -> (tag,ResetGroupStopTask)) resetGroupTags
   and setOne = [(setGroupTag,SetGroupStopTask)]
-  in let updatePair (test,(tags,reps)) = (test,(resetSome @ tags @ setOne,reps))
+  in let updatePair (test,tl) =
+       let oldTL = tl.tlTag
+       in (test,{ tl with tlTag = (resetSome @ oldTL @ setOne)})
      in List.map updatePair nvs
 
 (* TODO: go through and use rev_map or something to make this more efficient *)
-let rec cleanNullView = function
+let rec cleanNullView : nullView -> nullView = function
   | [] -> []
   | ((AlwaysTrue,_) as first :: rest) -> first :: []
   | ((testSet,_) as first :: rest) -> 
@@ -209,31 +212,36 @@ let rec cleanNullView = function
     in first :: cleanNullView (List.filter notDominated rest)
 
 (* TODO: go through and use rev_map or something to make this more efficient *)
-let seqNullViews s1 s2 =
-  let overS1 (test1,(tags1,reps1)) = 
-    let overS2 (test2,(tags2,reps2)) = 
-      (WhichTestMonoid.mappend test1 test2, (tags1 @ tags2,reps1 @ reps2))
+let seqNullViews (s1:nullView) (s2:nullView) =
+  let overS1 (test1,tl1) = 
+    let overS2 (test2,tl2) = 
+      (WhichTestMonoid.mappend test1 test2, { tlTag = (tl1.tlTag @ tl2.tlTag)
+                                            ; tlOrbit = (tl1.tlOrbit @ tl2.tlOrbit)
+                                            ; tlRep = (tl1.tlRep @ tl2.tlRep)})
     in List.map overS2 s2
   in cleanNullView (List.concat (List.map overS1 s1))
 
 let tagWrapNullView ha hb oldNV =
   match (toUpdate ha,toUpdate hb) with
     | ([],[]) -> oldNV
-    | (pre,post) -> let updatePair (oldTests,(oldTags,reps)) = (oldTests,(pre @ oldTags @ post,reps))
-                    in List.map updatePair oldNV
+    | (pre,post) -> let updateNullView (oldTests,tl) =
+                      let oldTL = tl.tlTag
+                      in  (oldTests,{ tl with tlTag = (pre @ oldTL @ post)})
+                    in List.map updateNullView oldNV
 
 (* Four cases for list handling efficiency *)
 let orbitWrapNullView r optOrbit orbitResets oldNV =
-  let preROT = List.rev_map (fun t -> (t,ResetOrbitTask)) orbitResets in
-  let (pre,post) = match optOrbit with
+  let preROT = List.rev_map (fun (t,o) -> (t,o,ResetOrbitTask)) orbitResets
+  in
+  let (preOrbit,postOrbit) = match optOrbit with
     | None -> (preROT,[])
-    | Some o -> ((o,EnterOrbitTask) :: preROT,[(o,LeaveOrbitTask)])
+    | Some (t,o) -> ((t,o,EnterOrbitTask) :: preROT,[(t,o,LeaveOrbitTask)])
   in
   let preRep = (r.repDepth,IncRep r.topCount)
   and postRep = (r.repDepth,LeaveRep) in
-  let updatePair (oldTests,(oldTags,oldReps)) = (oldTests,
-                                                 (List.rev_append pre (oldTags @ post),
-                                                 preRep :: (oldReps @ [postRep])))
+  let updatePair (oldTests,oldTL) = (oldTests,
+                                     {oldTL with tlOrbit = (List.rev_append preOrbit (oldTL.tlOrbit @ postOrbit))
+                                       ; tlRep = preRep :: (oldTL.tlRep @ [postRep])})
   in
   List.map updatePair oldNV
 
@@ -320,9 +328,9 @@ let toCorePattern (patternIn) : coreResult =
 
       (* invalid bounds cases *)
       | PBound (badI,_) when badI < 0 ->
-        failwith (Printf.sprintf "invalid bound repetition {%i,_} at byte %i" badI patIndex)
+        failwith (Printf.sprintf "impossible invalid bound repetition {%i,_} at byte %i" badI patIndex)
       | PBound (badI,Some badJ) when badI > badJ ->
-        failwith (Printf.sprintf "invalid bound repetion {%i,%i} at byte %i" badI badJ patIndex)
+        failwith (Printf.sprintf "impossible invalid bound repetion {%i,%i} at byte %i" badI badJ patIndex)
 
       (* all cases with no more than a single repetition do not form a Repeat node *)
       | PBound (0,Some 0) -> epsilon
@@ -400,6 +408,7 @@ let toCorePattern (patternIn) : coreResult =
   (* defined values and functions and operations used in SECOND PASS *)
   (* TODO: consider changing tag state into an OCaml object *)
   let rec nextTagRef = ref 2  (* tag 0 is start of whole pattern, tag 1 is end of whole pattern *)
+  and nextOrbitRef = ref 0
   and tagOPsLog = ref [Maximize;Minimize] (* in reverse order, ends with tag 0 *)
   and uniq' msg op = let tag = !nextTagRef in
                      begin
@@ -415,11 +424,16 @@ let toCorePattern (patternIn) : coreResult =
     | (Advice t as ht) | (Apply t as ht) -> (t,ht)
   (* TODO: consider changing orbit state into an OCaml object *)
   (* orbitInfoLog is prepend-only, and this is done in makeOrbit *)
+  (* TODO: sequentially number all the needsOrbit nodes to tightly pack the orbit log array *)
   and orbitInfoLog = ref []
   and makeOrbit () =
-    let tag = uniq' "makeOrbit" Orbit in
-    orbitInfoLog := tag :: !orbitInfoLog;
-    tag
+    let orbitNum = !nextOrbitRef in
+    begin
+      nextOrbitRef := orbitNum+1;
+      let tag = uniq' "makeOrbit" (Orbit orbitNum) in
+      orbitInfoLog := (tag,orbitNum) :: !orbitInfoLog;
+      (tag,orbitNum)
+    end
   and withOrbit lazyThunk =
     let origLength = List.length !orbitInfoLog in
     let value = Lazy.force lazyThunk in
@@ -466,7 +480,7 @@ let toCorePattern (patternIn) : coreResult =
     in
     match q.unQ with
       | OneChar _ -> applyBoth m1 m2 []
-      | Test testSet -> applyBoth m1 m2  [(testSet,([],[]))]
+      | Test testSet -> applyBoth m1 m2  [(testSet,emptyTaskList)]
       | CaptureGroup cg ->
         begin
           let (a,ha) = getOrMake m1 in let (b,hb) = getOrMake m2 in
@@ -526,7 +540,8 @@ let toCorePattern (patternIn) : coreResult =
         let (ha,hb) = acquire () in
         let optOrbit = if r.needsOrbit
           then Some (makeOrbit ())
-          else None in
+          else None 
+        in
         (* XXX try asAdvice hb instead of NoTag *)
         let (AppliedBoth,resetOrbitTags) = withOrbit (lazy (addTags r.unRep NoTag (asAdvice hb))) in
         (* A value in optOrbit is never included in resetOrbitTags *)
@@ -534,7 +549,7 @@ let toCorePattern (patternIn) : coreResult =
           let childView =
             if 0 < r.lowBound
             then r.unRep.nullQ
-            else cleanNullView ( r.unRep.nullQ @ [(AlwaysTrue,([],[]))] )
+            else cleanNullView ( r.unRep.nullQ @ [(AlwaysTrue,emptyTaskList)] )
           in orbitWrapNullView r optOrbit resetOrbitTags childView
         in
 (*
@@ -554,6 +569,7 @@ let toCorePattern (patternIn) : coreResult =
     ; tags = Array.of_list (List.rev !tagOPsLog)
     ; groups = Array.of_list (List.rev !groupInfoLog)
     ; depthCount = !repDepthCountRef
+    ; orbitCount = !nextOrbitRef
     }
   end
 

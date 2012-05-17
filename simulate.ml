@@ -48,11 +48,11 @@ let stringToList : ustring -> (strIndex*uchar) list = fun s ->
   else []
 
 let rec comparePos a b = match (a,b) with
-    ([],[]) -> 0
+  | ([],[]) -> 0
   | ([],_) -> -1
   | (_,[]) -> 1
   | (x::xs,y::ys) -> (match compare y x with
-       0 -> comparePos xs ys
+      | 0 -> comparePos xs ys
       | z -> z)
 
 (* Returns -1 if h1 is better than h2 and +1 if h2 is better than h1 and 0 for ties *)
@@ -73,7 +73,7 @@ let compareHistory ops =
             Minimize -> (match compare h1.tagA.(i) h2.tagA.(i) with 0 -> go (1+i) | x -> x)
           | Maximize -> (match compare h2.tagA.(i) h1.tagA.(i) with 0 -> go (1+i) | x -> x)
           | GroupFlag -> go (1+i)
-          | Orbit ->
+          | Orbit orbitNum ->
             begin
               if h1.tagA.(i) <> h2.tagA.(i)
               then (
@@ -84,7 +84,7 @@ let compareHistory ops =
                                    h1 is %s\n\
                                    h2 is %s\n"
                               i  h1.tagA.(i) h2.tagA.(i) s1 s2));
-              match comparePos (List.rev h1.orbitA.(i)) (List.rev h2.orbitA.(i)) with
+              match comparePos (List.rev h1.orbitA.(orbitNum)) (List.rev h2.orbitA.(orbitNum)) with
                   0 -> go (1+i)
                 | x -> x
             end
@@ -117,12 +117,12 @@ let doTagTask i h (tag,tagTask) = match tagTask with
   | ResetGroupStopTask -> h.tagA.(tag) <- (-1)
   | SetGroupStopTask   -> h.tagA.(tag) <-   0
 
+let doOrbitTask i h (tag,orbit,orbitTask) = match orbitTask with
     (* tagA value evolves from -1 to 0 when repeat is first entered, from 0 to 1 when it finally leaves *)
-  | ResetOrbitTask -> h.tagA.(tag) <- (-1); h.orbitA.(tag) <- []
-  | EnterOrbitTask -> h.tagA.(tag) <-   0;  h.orbitA.(tag) <- []
-  | LoopOrbitTask  ->                       h.orbitA.(tag) <- i :: h.orbitA.(tag)
-  | LeaveOrbitTask -> h.tagA.(tag) <-   1;
-    ()
+  | ResetOrbitTask -> h.tagA.(tag) <- (-1); h.orbitA.(orbit) <- []
+  | EnterOrbitTask -> h.tagA.(tag) <-   0;  h.orbitA.(orbit) <- []
+  | LoopOrbitTask  ->                       h.orbitA.(orbit) <- i :: h.orbitA.(orbit)
+  | LeaveOrbitTask -> h.tagA.(tag) <-   1
 
 (* MAGIC VALUE: repA values start and are reset to 0 *)
 let doRepTask h (tag,repTask) = match repTask with
@@ -130,9 +130,10 @@ let doRepTask h (tag,repTask) = match repTask with
   | LeaveRep -> h.repA.(tag) <- 0
 
 (* doTasks is used by the null matching code *)
-let doTasks i h (tagTasks,repTasks) =
-  forList tagTasks (doTagTask i h);
-  forList repTasks (doRepTask h);
+let doTasks i h (tl : taskList) =
+  forList tl.tlTag (doTagTask i h);
+  forList tl.tlOrbit (doOrbitTask i h);
+  forList tl.tlRep (doRepTask h);
   h
 
 (* MAGIC VALUE for prevIn *)
@@ -152,7 +153,7 @@ let rec simCP ?(prevIn=(-1,newline,0)) (cr : coreResult) (utf8string : ustring) 
   (* MAGIC VALUE of (-1) and [] for content of initial startHistory entries *)
   let startHistory = { tagA   = Array.make numTags      (-1)
                      ; repA   = Array.make cr.depthCount  0
-                     ; orbitA = Array.make numTags       []
+                     ; orbitA = Array.make cr.orbitCount []
                      }
 
   and winners = ref []
@@ -208,20 +209,22 @@ let rec simCP ?(prevIn=(-1,newline,0)) (cr : coreResult) (utf8string : ustring) 
     in
     match q.unQ with
         Repeat r ->
-          let soFar = h.repA.(r.repDepth) in
+          let soFar = h.repA.(r.repDepth)
+          and doOrbit task = (fun (t,o) -> doOrbitTask post h (t,o,task))
+          in
           if (note = NoNote) && (soFar < r.lowBound)
           then
             begin
               doRepTask h (r.repDepth,IncRep r.topCount);
-              forList r.resetOrbits (fun o -> doTagTask post h (o,ResetOrbitTask));
-              forOpt r.getOrbit (fun o -> doTagTask post h (o,LoopOrbitTask));
+              forList r.resetOrbits (doOrbit ResetOrbitTask);
+              forOpt r.getOrbit (doOrbit LoopOrbitTask);
               let returnContext = (SimReturn NoteNoLoop,q) :: context in
               doEnterNullEnd prev post h r.unRep returnContext
             end
           else
             begin
               doRepTask h (r.repDepth,LeaveRep);
-              forOpt r.getOrbit (fun o -> doTagTask post h (o,LeaveOrbitTask));
+              forOpt r.getOrbit (doOrbit LeaveOrbitTask);
               continue ()
             end
 
@@ -278,10 +281,11 @@ let rec simCP ?(prevIn=(-1,newline,0)) (cr : coreResult) (utf8string : ustring) 
             if h.repA.(r.repDepth) <> 0
             then failwith "impossible: doEnter.Repeat found non-zero h.repA(r.repDepth)"
             else
+              let doOrbit task = (fun (t,o) -> doOrbitTask i h (t,o,task)) in
               begin
                 doRepTask h (r.repDepth,IncRep r.topCount);
-                forList r.resetOrbits (fun o -> doTagTask i h (o,ResetOrbitTask));
-                forOpt r.getOrbit (fun o -> doTagTask i h (o,EnterOrbitTask));
+                forList r.resetOrbits (doOrbit ResetOrbitTask);
+                forOpt r.getOrbit (doOrbit EnterOrbitTask);
                 doEnter prev here ahead h r.unRep returnContext
               end
           end
@@ -309,29 +313,31 @@ let rec simCP ?(prevIn=(-1,newline,0)) (cr : coreResult) (utf8string : ustring) 
     in
     match q.unQ with
         Repeat r ->
-          let soFar = h.repA.(r.repDepth) in
+          let soFar = h.repA.(r.repDepth) 
+          and doOrbit h' task = (fun (t,o) -> doOrbitTask i h' (t,o,task)) in
           (* Printf.printf "doReturn (low %d) (depth %d) (count %d) (note %B)\n"
              r.lowBound r.repDepth soFar (note=NoteNoLoop);*)
           if soFar<=0
           then failwith "impossible: doReturn.Repeat found soFar <= 0"
           else
-            let goLoop hLoop =
+            let doLoop hLoop =
               doRepTask hLoop (r.repDepth,IncRep r.topCount);
-              forList r.resetOrbits (fun o -> doTagTask i hLoop (o,ResetOrbitTask));
-              forOpt r.getOrbit (fun o -> doTagTask i hLoop (o,LoopOrbitTask));
+              forList r.resetOrbits (doOrbit hLoop ResetOrbitTask);
+              forOpt r.getOrbit (doOrbit hLoop LoopOrbitTask);
+            in
+            let goLoop hLoop =
+              doLoop hLoop;
               let returnContext = (SimReturn NoNote,q) :: context in
               doEnter prev here ahead hLoop r.unRep returnContext
 
             and goLoopNull hLoop =
-              doRepTask hLoop (r.repDepth,IncRep r.topCount);
-              forList r.resetOrbits (fun o -> doTagTask i hLoop (o,ResetOrbitTask));
-              forOpt r.getOrbit (fun o -> doTagTask i hLoop (o,LoopOrbitTask));
+              doLoop hLoop;
               let returnContext = (SimReturn NoteNoLoop,q) :: context in
               doEnterNull prev here ahead hLoop r.unRep returnContext
 
             and goLeave hLeave =
               doRepTask hLeave (r.repDepth,LeaveRep);
-              forOpt r.getOrbit (fun o -> doTagTask i hLeave (o,LeaveOrbitTask));
+              forOpt r.getOrbit (doOrbit hLeave LeaveOrbitTask);
               continue hLeave
             in
             begin

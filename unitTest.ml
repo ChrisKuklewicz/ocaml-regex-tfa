@@ -30,7 +30,6 @@ let format_match (g,_) =
   Array.iter add_match g;
   contents b
 
-
 let runTestFile name =
   let storeSAME = ref "" in
   let runTest n sREIn sTextIn sOut =
@@ -70,4 +69,5 @@ let runAllTestFiles () =
   Core.In_channel.iter_lines ~fix_win_eol:true chan ~f:runTestFile;
   ();;
 
+Printf.printf "unitTest\n";;
 runAllTestFiles ();;

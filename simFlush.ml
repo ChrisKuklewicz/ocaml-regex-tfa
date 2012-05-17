@@ -2,9 +2,12 @@
 
 (*
 
-  A modfied simCont.ml to operate in passes over the tree instead of iterating over history.  Changes scaling of worst time 
+  A modfied simCont.ml to operate in passes over the tree instead of iterating over history. 
 
-  State between accepting characters is still logically stored in OneChar locations.  A
+  State between accepting characters is now physically stored in ROneChar locations.  During processing the state is moved/copied to RSeq and RRepeat nodes.  The two phase processing of flushUp and doEnter also used and implements a mutable count of occupied ROneChar leaves to avoid processing parts of the tree that are unoccupied.
+
+  Redefine history to include additinal information needed
+
 
 *)
 
@@ -26,13 +29,6 @@ TYPE_CONV_PATH "SimFlush"
 
 (* Setup storage types for matching data *)
 
-module PatIndexID =
-struct
-  type t = patIndex with sexp
-  type sexpable = t
-  let compare = compare
-end
-
 module RepStateID =
 struct
   type t = int array with sexp
@@ -41,8 +37,6 @@ struct
 end
 
 module BundleMap = Core.Core_map.Make(RepStateID)
-
-module IndexMap = Core.Core_map.Make(PatIndexID)
 
 type bundle = history BundleMap.t
 
@@ -62,20 +56,24 @@ let copyBundle b = BundleMap.of_alist_exn
    Secondary Storage is in RSeq and RRepeat and is set by doReturn.
    The hasBundle field will store the bool from doEnter for later optimization.
  *)
-type runPattern =
+
+type 'b runPatternB =
   (* Leaf nodes *)
-  | ROneChar of uset*(bundle ref)
+    ROneChar of uset*('b ref)
   | RTest
   (* Tree nodes *)
-  | RSeq of runQ*(bundle ref)*runQ
-  | ROr of runQ list
-  | RCaptureGroup of capGroupQ*runQ
-  | RRepeat of repeatQ*(bundle ref)*runQ
+  | RSeq of 'b runQB*('b ref)*'b runQB
+  | ROr of 'b runQB list
+  | RCaptureGroup of capGroupQ*'b runQB
+  | RRepeat of repeatQ*('b ref)*'b runQB
 
-and runQ = { getCore : coreQ
-           ; getRun : runPattern
-           ; mutable numHistories : int
-           }
+and 'b runQB = { getCore : coreQ
+               ; getRun : 'b runPatternB
+               ; mutable numHistories : int
+               }
+
+type runPattern = bundle runPatternB
+type runQ = bundle runQB
 
 let rec coreToRun (c : coreQ) : runQ =
   let run = match c.unQ with
@@ -93,14 +91,13 @@ let rec coreToRun (c : coreQ) : runQ =
 
 let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
   let numTags = Array.length cr.tags
-  and numReps = cr.depthCount
   and root = coreToRun cr.cp
   in
   let prev = ref prevIn  (* Anchors can test facts about preceding character *)
   and winners = ref []
   and startHistory = { tagA   = Array.make numTags (-1)
-                     ; repA   = Array.make numReps 0
-                     ; orbitA = Array.make numTags []
+                     ; repA   = Array.make cr.depthCount 0
+                     ; orbitA = Array.make cr.orbitCount []
                      }
   in
   let cycle here =
@@ -184,98 +181,100 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
     winners := h :: !winners
 
   and flushUp ((i,_c) as here) (rq : runQ) : bundle =
-    let bUp = match rq.getRun with
-      | ROneChar (_uc,stored) ->
-        let b = !stored in
-        stored := bzero;
-        b
+    if rq.numHistories = 0
+    then bzero
+    else
+      let bUp = match rq.getRun with
+        | ROneChar (_uc,stored) ->
+          let b = !stored in
+          stored := bzero;
+          b
 
-      | ROr rqs -> mergeBundleList (List.map (flushUp here) rqs)
+        | ROr rqs -> mergeBundleList (List.map (flushUp here) rqs)
 
-      | RCaptureGroup (cg,subRQ) ->
-        let bSubPat = flushUp here subRQ in 
-        forBundle bSubPat (fun h ->
-          doTagTask i h (cg.postSet,SetGroupStopTask));
-        bSubPat
+        | RCaptureGroup (cg,subRQ) ->
+          let bSubPat = flushUp here subRQ in 
+          forBundle bSubPat (fun h ->
+            doTagTask i h (cg.postSet,SetGroupStopTask));
+          bSubPat
 
-      | RTest _ -> bzero
+        | RTest _ -> bzero
 
-      | RSeq (rqFront,stored,rqBack) ->
-        (* perhaps better: check tryTaskList on qBack before flushUp on bFront *)
-        let bFront = flushUp here rqFront in
-        stored := bFront;
-        let bBack = flushUp here rqBack in
-        Option.value_map (tryTaskList here rqBack)
-          ~default:bBack
-          ~f:(fun taskList ->
-            let bMid = copyBundle bFront in
-            (forBundle bMid (fun h ->
-              ignore (doTasks i h taskList));
-             mergeBundles bMid bBack))
+        | RSeq (rqFront,stored,rqBack) ->
+          let bFront = flushUp here rqFront in
+          stored := bFront;
+          let bBack = flushUp here rqBack in
+          Option.value_map (tryTaskList here rqBack)
+            ~default:bBack
+            ~f:(fun taskList ->
+              let bMid = copyBundle bFront in
+              (forBundle bMid (fun h ->
+                ignore (doTasks i h taskList));
+               mergeBundles bMid bBack))
 
 
-      (* In RRepeat the flushUp history may have multiple futures
-         1) It may be at or above the lowBound and leave as is
-         2) It may be below the lowBound and not be at a fixed high bound and try to accept null & leave
-         3) It may not be at a fixed high bound and be held for doEnter
-      *)
+        (* In RRepeat the flushUp history may have multiple futures
+           1) It may be at or above the lowBound and leave as is
+           2) It may be below the lowBound and not be at a fixed high bound and try to accept null & leave
+           3) It may not be at a fixed high bound and be held for doEnter
+        *)
 
-      | RRepeat (r,stored,subRQ) ->
-        let histories = BundleMap.data (flushUp here subRQ)
-        and loopIt hLoop = (* mutate hLoop *)
-          doRepTask hLoop (r.repDepth,IncRep r.topCount);
-          forList r.resetOrbits (fun o -> doTagTask i hLoop (o,ResetOrbitTask));
-          forOpt r.getOrbit (fun o -> doTagTask i hLoop (o,LoopOrbitTask))
-        and atLimit = match r.optHiBound with
-          | None -> (fun _ -> false)
-          | Some hi -> (fun h -> hi = h.repA.(r.repDepth))
-        in
+        | RRepeat (r,stored,subRQ) ->
+          let histories = BundleMap.data (flushUp here subRQ)
+          and doOrbit h' task = (fun (t,o) -> doOrbitTask i h' (t,o,task))
+          in
+          let loopIt hLoop = (* mutate hLoop *)
+            doRepTask hLoop (r.repDepth,IncRep r.topCount);
+            forList r.resetOrbits (doOrbit hLoop ResetOrbitTask);
+            forOpt r.getOrbit (doOrbit hLoop LoopOrbitTask)
+          and atLimit = match r.optHiBound with
+            | None -> (fun _ -> false)
+            | Some hi -> (fun h -> hi = h.repA.(r.repDepth))
+          in
 
-        (* Make copies of history on way to putting bLoop in stored *)
-        let loopEnter h =  (* does not mutate h, may copy *)
-          if atLimit h
-          then None
-          else let hLoop = copyHistory h
-               in (loopIt hLoop; Some hLoop)
-        in
-        (* makes copies of histories as needed *)
-        let bLoop = assembleBundle (Core.Core_list.filter_map histories ~f:loopEnter)
-        in
-        stored := bLoop;
+          (* Make copies of history on way to putting bLoop in stored *)
+          let loopEnter h =  (* does not mutate h, may copy *)
+            if atLimit h
+            then None
+            else let hLoop = copyHistory h
+                 in (loopIt hLoop; Some hLoop)
+          in
+          (* makes copies of histories as needed *)
+          let bLoop = assembleBundle (Core.Core_list.filter_map histories ~f:loopEnter)
+          in
+          stored := bLoop;
 
-        (* Now mutate histories on way out of flushUp *)
-        let canExit h = r.lowBound <= h.repA.(r.repDepth)
-        in
-        let loopNull (h : history) : history option = (* mutates h, no need to copy it *)
-          Option.map (tryTaskList here subRQ) (fun taskList ->
-            loopIt h;
-            doTasks i h taskList);
-        and leaveIt h = (* mutates h, no need to make copies *)
-          doRepTask h (r.repDepth,LeaveRep);
-          forOpt r.getOrbit (fun o -> doTagTask i h (o,LeaveOrbitTask))
-        in
-        let listFlush h = (* mutates h, no need to make copies *)
-          let self = if canExit h then [h] else [] in
-          if (not (atLimit h)) && (h.repA.(r.repDepth) < r.lowBound)
-          then Option.value_map (loopNull h) ~default:self ~f:(fun hLoop -> hLoop::self)
-          else self
-        in (* mutates and does not need to make copies *)
-        let toLeave = Core.Core_list.concat_map histories ~f:listFlush in
-        forList toLeave leaveIt;
-        let bFlush = assembleBundle toLeave
-        in
-        bFlush
-    and doPostTag (bContinue : bundle) : unit =
-      forOpt rq.getCore.postTag (fun tag ->
-        forBundle bContinue (fun hContinue ->
-          doTagTask i hContinue (tag,TagTask)))
-    in 
-    doPostTag bUp;
-    bUp
+          (* Now mutate histories on way out of flushUp *)
+          let canExit h = r.lowBound <= h.repA.(r.repDepth)
+          in
+          let loopNull (h : history) : history option = (* mutates h, no need to copy it *)
+            Option.map (tryTaskList here subRQ) (fun taskList ->
+              loopIt h;
+              doTasks i h taskList);
+          and leaveIt h = (* mutates h, no need to make copies *)
+            doRepTask h (r.repDepth,LeaveRep);
+            forOpt r.getOrbit (doOrbit h LeaveOrbitTask)
+          in
+          let listFlush h = (* mutates h, no need to make copies *)
+            let self = if canExit h then [h] else [] in
+            if (not (atLimit h)) && (h.repA.(r.repDepth) < r.lowBound)
+            then Option.value_map (loopNull h) ~default:self ~f:(fun hLoop -> hLoop::self)
+            else self
+          in (* mutates and does not need to make copies *)
+          let toLeave = Core.Core_list.concat_map histories ~f:listFlush in
+          forList toLeave leaveIt;
+          assembleBundle toLeave
+      and doPostTag (bContinue : bundle) : unit =
+        forOpt rq.getCore.postTag (fun tag ->
+          forBundle bContinue (fun hContinue ->
+            doTagTask i hContinue (tag,TagTask)))
+      in 
+      doPostTag bUp;
+      bUp
 
   and doEnter ((i,c) as here) bIn rq : int =
-    if (Some 0 = snd rq.getCore.takes)
-    then 0 (* This short-circuits subtress with only RTest leaves *)
+    if (Some 0 = snd rq.getCore.takes) || ((rq.numHistories = 0) && (BundleMap.cardinal bIn = 0))
+    then 0 (* This short-circuits subtress with only RTest leaves, or with nothing to enter/update *)
     else
       begin
         let doPreTag bContinue =
@@ -343,6 +342,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
 
   and flushUpEnd i (rq : runQ) : bundle =
     let bUp = match rq.getRun with
+      (* These four cases are mostly the same as flushUp *)
       | ROneChar (_uc,stored) ->
         let b = !stored in
         stored := bzero;
@@ -358,26 +358,27 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
 
       | RTest _ -> bzero
 
+      (* These two cases set stored to bzero *)
       | RSeq (rqFront,stored,rqBack) ->
-        (* perhaps better: check tryTaskList on qBack before flushUp on bFront *)
         stored := bzero;
-        let bFront = flushUpEnd i rqFront
-        and bBack = flushUpEnd i rqBack in
+        let bBack = flushUpEnd i rqBack in
         Option.value_map (tryTaskListEnd i rqBack)
           ~default:bBack
           ~f:(fun taskList ->
-            let bMid = bFront in
-            (forBundle bMid (fun h ->
+            let bFront = flushUpEnd i rqFront in
+            (forBundle bFront (fun h ->
               ignore (doTasks i h taskList));
-             mergeBundles bMid bBack))
+             mergeBundles bFront bBack))
 
       | RRepeat (r,stored,subRQ) ->
         stored := bzero;
         let histories = BundleMap.data (flushUpEnd i subRQ)
-        and loopIt hLoop = (* mutate hLoop *)
+        and doOrbit h' task = (fun (t,o) -> doOrbitTask i h' (t,o,task))
+        in
+        let loopIt hLoop = (* mutate hLoop *)
           doRepTask hLoop (r.repDepth,IncRep r.topCount);
-          forList r.resetOrbits (fun o -> doTagTask i hLoop (o,ResetOrbitTask));
-          forOpt r.getOrbit (fun o -> doTagTask i hLoop (o,LoopOrbitTask))
+          forList r.resetOrbits (doOrbit hLoop ResetOrbitTask);
+          forOpt r.getOrbit (doOrbit hLoop LoopOrbitTask)
         and atLimit = match r.optHiBound with
           | None -> (fun _ -> false)
           | Some hi -> (fun h -> hi = h.repA.(r.repDepth))
@@ -392,7 +393,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
             doTasks i h taskList)
         and leaveIt h = (* mutates h, no need to make copies *)
           doRepTask h (r.repDepth,LeaveRep);
-          forOpt r.getOrbit (fun o -> doTagTask i h (o,LeaveOrbitTask))
+          forOpt r.getOrbit (doOrbit h LeaveOrbitTask)
         in
         let listFlush h = (* mutates h, no need to make copies *)
           let self = if canExit h then [h] else [] in
@@ -400,19 +401,9 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
           then Option.value_map (loopNull h) ~default:self ~f:(fun hLoop -> hLoop::self)
           else self
         in
-        let bFlush = (* mutates and does not need to make copies *)
-          match (Core.Core_list.concat_map histories ~f:listFlush) with
-            | [] -> bzero
-            | hs -> BundleMap.map
-              ~f:bestHistoryList (* resolve list of collisions *)
-              (BundleMap.of_alist_multi (* collisions possible, store in lists *)
-                 (Core.Core_list.map
-                    hs 
-                    ~f:(fun h ->
-                      leaveIt h;
-                      (h.repA,h))))
-        in
-        bFlush
+        let toLeave = Core.Core_list.concat_map histories ~f:listFlush in
+        forList toLeave leaveIt;
+        assembleBundle toLeave
 
     and doPostTag (bContinue : bundle) : unit =
       forOpt rq.getCore.postTag (fun tag ->
@@ -434,7 +425,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
         | AlwaysFalse -> false
         | CheckAll tests -> List.for_all checkTest (WhichTestMap.to_alist tests)
       in if pass then Some taskList else None
-    in Core.Core_list.find_map rq.getCore.nullQ ~f:tryNull
+    in Core.Core_list.find_map ~f:tryNull rq.getCore.nullQ
 
   and tryTaskListEnd i rq = (* no mutation *)
     let (_,pc) = !prev in
@@ -448,7 +439,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
         | AlwaysFalse -> false
         | CheckAll tests -> List.for_all checkTest (WhichTestMap.to_alist tests)
       in if pass then Some taskList else None
-    in Core.Core_list.find_map rq.getCore.nullQ ~f:tryNull
+    in Core.Core_list.find_map ~f:tryNull rq.getCore.nullQ
 
   in nextStep
 
