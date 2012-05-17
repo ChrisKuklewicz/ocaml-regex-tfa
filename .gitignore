@@ -3,3 +3,4 @@
 *.annot
 *.o
 *~
+passes*
