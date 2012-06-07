@@ -17,12 +17,14 @@ TODO needs to the module signature.
 "pattern.ml defines the pattern type for storing parsed regular expression"
 This is, usefully, a fairly correct-by-construction parse tree.
 It manages to use sexplib to explicitly convert uchar and ustring.
-Note: (* XXX XXX There is a bug in USet.fold_range, r is always the same as l XXX XXX *)
+
+Note: There is a bug in USet.fold_range, r is always the same as l; worked around in code.
+
 TODO: check if the bug is still there
 
 * readPattern.ml
 
-Hand written parser for regular expresions into pattern.ml structure.
+Hand written parser for regular expressions into pattern.ml structure.
 
 * whichTest.ml
 
@@ -30,7 +32,7 @@ This defines collections of tests, as a map from the test type to a boolean and 
 
 This defines "nullView" which will be core of defining how zero-character-accepting possibilities get considered separately from character-accepting possibilities.
 
-This also defines "dominates" which establishes a partial order useful for avoiding redundant checking of conditions.  With a plethora conditions to check it would be an optmization to use binary decisions diagrams.
+This also defines "dominates" which establishes a partial order useful for avoiding redundant checking of conditions.  With a plethora conditions to check it would be an optimization to use binary decisions diagrams.
 
 * corePattern.ml
 
@@ -42,7 +44,7 @@ Also, USet to and from sexp are defined.
 
 * simulate.ml
 
-Walk the corePattern.ml to match against some text.  Do this in a depth-first manner, with exponential backtracking to cover all possibilities.  Only compare the colletions of all results at the end to pick the single desired result.  This works and passes the standard test suite.
+Walk the corePattern.ml to match against some text.  Do this in a depth-first manner, with exponential backtracking to cover all possibilities.  Only compare the collections of all results at the end to pick the single desired result.  This works and passes the standard test suite.
 
 The meaning of much of the work in corePattern.ml can be seen in this module's code.  The maintenance of the mutable state of the possible match is largely done by doTagTask and doRepTask.   The combined call using doTasks is employed by the null matching code.  These recorded tags are ultimately interpreted by the compareHistory operation which is used to sort all the possible ways to match the text.
 
@@ -68,7 +70,7 @@ Get a proper design for the next engine after simStep.
 
 Building the context stack is quite wasteful, this ought to be replaced.  Use the same post-OneChar model.  When a new character arrives pull out each possibility from the history and make it fly with a return call.  The trick is the Seq handling (?).  Coming up from qFront means that qFront has accepted and now can go to qBack as what was called SimEnterAny so null is possible.  Coming from outside the Seq to qBack meant that there is a live char that must be handled and force doEnter.
 
-The trouble seems to be the interaction between doEnter and Seq handling.  Each doEnter is required to accept at least 1 character.  So each recursive doEnter creates a new logical "hasAccepted" flag.  The Or nodes split the possibility and then act as having a single contained node.  The Repeat node acts as its contained node, as does CaptureGroup.  The OneChar handling sinks the possibility into the history or lets it fade.  The single contained node means the logical "hasAccepted" flag is that of the child.  The Seq node has 2 children, so a nested Seq accumulate a stack of logical "hasAccepted" flags.  The stack handled this by recording an explicit stack of SimEnterAny and SimEnterAccept records.  But SimEnterAccept is never storeed in the history!
+The trouble seems to be the interaction between doEnter and Seq handling.  Each doEnter is required to accept at least 1 character.  So each recursive doEnter creates a new logical "hasAccepted" flag.  The Or nodes split the possibility and then act as having a single contained node.  The Repeat node acts as its contained node, as does CaptureGroup.  The OneChar handling sinks the possibility into the history or lets it fade.  The single contained node means the logical "hasAccepted" flag is that of the child.  The Seq node has 2 children, so a nested Seq accumulate a stack of logical "hasAccepted" flags.  The stack handled this by recording an explicit stack of SimEnterAny and SimEnterAccept records.  But SimEnterAccept is never stored in the history!
 
 To remove these flags from the stack requires recognizing that jumping from qFront to qBack was an "optimization" that needs to be rethought.  It must go to the parent in between.  The mean that Seq nodes do not have "doEnter" and "doReturn" but rather "doEnter" and "doReturnFromFront" and "doReturnFromBack".  The doReturnFromFront means that front accepted a character via doEnter previously and is now bubbling up and qBack has the choices of SimEnterAny.  What of returning from front without accepting a character?  This must have come into Seq this same cycle via doEnter and called the equivalent of doEnterNull on qFront.  The doEnterNull does need a way to dispatch back to doEnter on qBack.  But this can be done with not dispatching from doEnterNull but rather returning a (Some history) back to doEnter on the Seq.
 
@@ -96,9 +98,9 @@ The third user of doEnterNull is spark.  This can also handle (Some history) com
 The fourth use of doEnterNull was dispatch on SimEnterAny but this is now doReturnFromFront.
 Thus doEnterNull can by wholly changed into the form of returning (Some history).
 
-This design seems ambitious emough for the next phase of the code.
+This design seems ambitious enough for the next phase of the code.
 
--- --
+----
 
 For single pass over the tree?  Repeat is the killer.
 
@@ -114,10 +116,10 @@ The Or node may allocate a new virtual index to be the merge of its branches, bu
 
 The indexes must be passed in with an operation list attached.
 
-For a single pass not over the tree? Go to a good NFA first? The fancy repeat nodes may make this NFA hard to build.  Would need epsilon transitions.  This actually sounds ok.
+For a single pass not over the tree? Go to a good NFA first? The fancy repeat nodes may make this NFA hard to build.  Would need epsilon transitions.  This actually sounds OK.
 
 
--- --
+----
 
 A vision of the level beyond that has come.  The tree is walked in 2.5 passes once presented with the next character C:
 
@@ -127,27 +129,21 @@ The 0.5 pass is "spark" and this provides any zero-width winner before C.  This 
 
 The last pass is the "flush down" pass that is kin to the doEnter phase.  Each node has an optional incoming bundle.  The logic around Repeat nodes may get hairy, but hope endures.  This pass logically fills the appropriate OneChar and empties the intermediate nodes.
 
-The whole tree may be processed at first, then add flags to indicate which nodes need "flush up"/"flush down".  The nature of the tree pass is in patIndex order, so storing the history as a list and annotating the range of patIndex values under each node would serve as "flush up" flags.  The "flush down" occurance is both spark-driven and covers the "flush-up" nodes.
+The whole tree may be processed at first, then add flags to indicate which nodes need "flush up"/"flush down".  The nature of the tree pass is in patIndex order, so storing the history as a list and annotating the range of patIndex values under each node would serve as "flush up" flags.  The "flush down" occurrence is both spark-driven and covers the "flush-up" nodes.
 
--- --
-
-simCont.ml
+* simCont.ml
 
 make the changes to simStep.ml needed to remove the context stack, with extra contTo field in the coreQ.  This was refreshingly easy after typing up this code guide.
 
--- -- 
-
-simFlush.ml
+* simFlush.ml
 
 Use a runPattern that stores the data across the tree instead of a history map.  Do two partial traversals of the tree for each step.
-
--- --
 
 Next versions should implement pre-comparison to do compression of loop histories, and should implement earliest-history tracking to allow for streaming return of disjoint matches.  The efficiency of the system looks pretty good, the early merging of histories in simFlush may keep the simCont worst case at bay.
 
 Another enhancements will be to pass in just characters without the index attached to each one.
 
-The Haskell code is parameterized to work on different input streams, and the Ocaml could use a module functor interface to handle different input sources.
+The Haskell code is parameterized to work on different input streams, and the OCaml could use a module functor interface to handle different input sources.
 
 The Haskell code has engines for combinations of "front-anchored" and "non-capturing" or "testing".  The anchor testing can be either singleline or multiline, which can be a module functor parameter in OCaml.
 
