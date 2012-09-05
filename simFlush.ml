@@ -256,10 +256,11 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
             forOpt r.getOrbit (doOrbit h LeaveOrbitTask)
           in
           let listFlush h = (* mutates h, no need to make copies *)
-            let self = if canExit h then [h] else [] in
-            if (not (atLimit h)) && (h.repA.(r.repDepth) < r.lowBound)
-            then Option.value_map (loopNull h) ~default:self ~f:(fun hLoop -> hLoop::self)
-            else self
+            if canExit h
+            then [h]
+            else match loopNull h with
+              | None -> []
+              | Some hLoop -> [hLoop]
           in (* mutates and does not need to make copies *)
           let toLeave = Core.Core_list.concat_map histories ~f:listFlush in
           forList toLeave leaveIt;
@@ -396,10 +397,10 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
           forOpt r.getOrbit (doOrbit h LeaveOrbitTask)
         in
         let listFlush h = (* mutates h, no need to make copies *)
-          let self = if canExit h then [h] else [] in
-          if (not (atLimit h)) && (h.repA.(r.repDepth) < r.lowBound)
-          then Option.value_map (loopNull h) ~default:self ~f:(fun hLoop -> hLoop::self)
-          else self
+          if canExit h then [h]
+          else match loopNull h with
+            | None -> []
+            | Some hLoop -> [hLoop]
         in
         let toLeave = Core.Core_list.concat_map histories ~f:listFlush in
         forList toLeave leaveIt;
