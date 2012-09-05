@@ -154,3 +154,9 @@ In the longest run, making a byte-processing version that converts the pattern t
 In other realms, making an OCaml inspired port back to Haskell or on to C/C++/Java/Fortran...
 
 Another optimization: make orbit log storage be indexed by something less sparse than the getOrbit (Some o) tag.  Perhaps there is a map from getOrbit to the RRepeat node which holds the orbit log?  No. There is a need to copy the orbitlog with the history.
+
+* speculation
+
+The compression of loop-histories needs to group the stored histories into the right cohorts.  The Haskell chorts are quite broad but I think starting from simflush.ml I can make the cohorts more narrow.  The loop-history only matters when (the Repeat node has a variable length sub-pattern) and (histories have the same Repeat start) and (either (histories are looping back at the same position) or (histories have same Repeat stop)).
+
+I think the flushUp from the sub-pattern of the Repeat catches (either (histories are looping back at the same position) or (histories have same Repeat stop)). Thus 
