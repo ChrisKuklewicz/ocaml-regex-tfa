@@ -20,12 +20,15 @@ let e c = let b = UTF8.Buf.create 4 in
           UTF8.Buf.add_char b c;
           UTF8.Buf.contents b;;
 
-(* USet.fold_range has a typo, corrent here *)
+(* OLD: USet.fold_range has a typo, corrent here *)
+(*
 let fold_range f s a =
   let f' n1 n2 a = f (UChar.chr_of_uint n1) (UChar.chr_of_uint n2) a in
   ISet.fold_range f' s a
+*)
 
-(* ISet.remove has a typo, correct here *)
+(* OLD: ISet.remove has a typo, correct here *)
+(*
 let rec myRemove n s =
   if AvlTree.is_empty s then AvlTree.empty else
   let (v1, v2) as v = AvlTree.root s in
@@ -41,17 +44,18 @@ let rec myRemove n s =
   else if n = v2 then AvlTree.make_tree s1 (v1, v2 - 1) s2 else
   AvlTree.make_tree s1 v (myRemove n s2)
 
-(* Wrap myRemove to replace USet.remove *)
+(* OLD: Wrap myRemove to replace USet.remove *)
 let uremove u s = USet.uset_of_iset (myRemove (UChar.uint_code u) (USet.iset_of_uset s))
+*)
 
 let printer_uset = fun f s ->
   Format.fprintf f "@[<1>(uset(%d) " (USet.cardinal s);
-(* XXX XXX There is a bug in USet.fold_range, r is always the same as l XXX XXX *)
-  ignore (fold_range (fun l r first ->
+  (* OLD: There was a bug in USet.fold_range, r is always the same as l *)
+  ignore (USet.fold_range (fun l r first ->
     if not first then Format.fprintf f "," else ();
     if l=r then Format.fprintf f "%a" printer_uchar l
     else Format.fprintf f "%a-%a" printer_uchar l printer_uchar r;
-    false;) (USet.iset_of_uset s) true);
+    false;) s true);
   Format.fprintf f ")@]";;
 
 type bracketChar =

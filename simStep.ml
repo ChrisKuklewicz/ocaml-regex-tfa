@@ -97,14 +97,14 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
       (*pr "StepChar (%d,%s)\n" _i (us _c);*)
       spark here;
       (*pr "  _spark done_\n";*)
-      HistMap.iter (process here) !m1;
+      HistMap.iter !m1 ~f:(process here);
       cycle here
 
     | StepEnd indexAtEnd -> 
       (*pr "StepEnd %d\n" indexAtEnd;*)
       sparkEnd indexAtEnd;
       (*pr "  _sparkedEnd done_\n";*)
-      HistMap.iter (processEnd indexAtEnd) !m1;
+      HistMap.iter !m1 ~f:(processEnd indexAtEnd);
       cycle (indexAtEnd,newline)
 
   (* process(End) are specialize doReturns that revivify the postData and know the previous coreQ

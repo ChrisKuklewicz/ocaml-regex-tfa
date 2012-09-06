@@ -1,3 +1,5 @@
+To compile: run ./compile
+
 This is my "learn OCaml the hard way" project.  The project is to take the great and awesome Haskell [regex-tdfa][r-t] and achieve a similar goal in OCaml.
 
 What does it do?  POSIX ERE
@@ -47,6 +49,10 @@ Store the state in mutable tree instead of a map -- this improves the traversal 
 * to be written
 
 Add the comparison pass to compress the state, this will change the worst case space usage for text of length 'n' from O(n) to O(1).
+
+The compression of loop-histories needs to group the stored histories into the right cohorts.  The Haskell chorts are quite broad but I think starting from simflush.ml I can make the new cohorts more narrow.  The loop-history only matters when (the Repeat node has a variable length sub-pattern) and (histories have the same Repeat start) and (either (histories are looping back at the same position) or (histories have same Repeat stop)).
+
+I think the flushUp from the sub-pattern of the Repeat catches (either (histories are looping back at the same position) or (histories have same Repeat stop)). Thus the cohort is already there and ready for compression.  The 
 
 [r-t]: http://hackage.haskell.org/package/regex-tdfa
 [att1]: http://www2.research.att.com/~gsf/testregex/re-interpretation.html

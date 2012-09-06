@@ -142,12 +142,11 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
                   (h.repA,h))))
 
   and mergeBundles b1 b2 =
-    BundleMap.merge (fun ~key:_ opt1 opt2 -> 
-      match (opt1,opt2) with
-        | (Some h1, Some h2) -> Some (bestHistory h1 h2)
-        | (Some h1, None) -> Some h1
-        | (None, Some h2) -> Some h2
-        | (None,None) -> None) b1 b2
+    BundleMap.merge b1 b2 ~f:(fun ~key:_ opt12 -> 
+      match opt12 with
+        | `Both (h1,h2) -> Some (bestHistory h1 h2)
+        | `Left h1 -> Some h1
+        | `Right h2 -> Some h2)
   in
 
   let (mergeBundleList : bundle list -> bundle) = function
@@ -198,7 +197,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
             doTagTask i h (cg.postSet,SetGroupStopTask));
           bSubPat
 
-        | RTest _ -> bzero
+        | RTest -> bzero
 
         | RSeq (rqFront,stored,rqBack) ->
           let bFront = flushUp here rqFront in
@@ -245,7 +244,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
           stored := bLoop;
 
           (* Now mutate histories on way out of flushUp *)
-          let canExit h = r.lowBound <= h.repA.(r.repDepth)
+          let aboveLow h = r.lowBound <= h.repA.(r.repDepth)
           in
           let loopNull (h : history) : history option = (* mutates h, no need to copy it *)
             Option.map (tryTaskList here subRQ) (fun taskList ->
@@ -256,7 +255,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
             forOpt r.getOrbit (doOrbit h LeaveOrbitTask)
           in
           let listFlush h = (* mutates h, no need to make copies *)
-            if canExit h
+            if aboveLow h
             then [h]
             else match loopNull h with
               | None -> []
@@ -274,7 +273,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
       bUp
 
   and doEnter ((i,c) as here) bIn rq : int =
-    if (Some 0 = snd rq.getCore.takes) || ((rq.numHistories = 0) && (BundleMap.cardinal bIn = 0))
+    if (Some 0 = snd rq.getCore.takes) || ((rq.numHistories = 0) && (BundleMap.length bIn = 0))
     then 0 (* This short-circuits subtress with only RTest leaves, or with nothing to enter/update *)
     else
       begin
@@ -287,7 +286,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
         let n = match rq.getRun with
           | ROneChar (uc,stored) when USet.mem c uc ->
             stored := bIn;
-            BundleMap.cardinal bIn
+            BundleMap.length bIn
               
           | ROneChar _ -> 0
 
@@ -298,7 +297,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
             in
             List.fold_left (+) 0 accepted
 
-          | RTest _ -> failwith "impossible: doEnter.RTest should be unreachable"
+          | RTest -> failwith "impossible: doEnter.RTest should be unreachable"
 
           | RCaptureGroup (cg,subRQ) ->
             forBundle bIn (fun h ->
@@ -357,7 +356,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
           doTagTask i h (cg.postSet,SetGroupStopTask));
         bSubPat
 
-      | RTest _ -> bzero
+      | RTest -> bzero
 
       (* These two cases set stored to bzero *)
       | RSeq (rqFront,stored,rqBack) ->
@@ -380,13 +379,10 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
           doRepTask hLoop (r.repDepth,IncRep r.topCount);
           forList r.resetOrbits (doOrbit hLoop ResetOrbitTask);
           forOpt r.getOrbit (doOrbit hLoop LoopOrbitTask)
-        and atLimit = match r.optHiBound with
-          | None -> (fun _ -> false)
-          | Some hi -> (fun h -> hi = h.repA.(r.repDepth))
         in
         
         (* Now mutate histories on way out of flushUp *)
-        let canExit h = r.lowBound <= h.repA.(r.repDepth)
+        let aboveLow h = r.lowBound <= h.repA.(r.repDepth)
         in
         let loopNull (h : history) : history option = (* mutates h, no need to copy it *)
           Option.map (tryTaskListEnd i subRQ) (fun taskList ->
@@ -397,7 +393,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
           forOpt r.getOrbit (doOrbit h LeaveOrbitTask)
         in
         let listFlush h = (* mutates h, no need to make copies *)
-          if canExit h then [h]
+          if aboveLow h then [h]
           else match loopNull h with
             | None -> []
             | Some hLoop -> [hLoop]
@@ -467,5 +463,5 @@ open Core.Result
 
 let wrapSimFlush (pattern : ustring) (text: ustring) : o =
   match (parseRegex pattern) with
-      Error err -> (*Printf.printf "Error: %s\n" err;*) []
+    | Error err -> (*Printf.printf "Error: %s\n" err;*) []
     | Ok p -> let cr = toCorePattern p in uWrapFlush cr text

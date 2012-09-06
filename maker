@@ -1,5 +1,9 @@
+#!/bin/bash
+
+# Change type-conv to type_conv
+
 rm *.cmo *.cmi
 for i in common.ml monoid.ml pattern.ml readPattern.ml whichTest.ml corePattern.ml simulate.ml  unitTest.ml simStep.ml unitTestStep.ml main.ml testab.ml simCont.ml unitTestCont.ml simFlush.ml unitTestFlush.ml; do
     echo $i
-    ocamlfind ocamlc -annot -pp "camlp4o -I `ocamlfind query type-conv`  -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma"  -I `ocamlfind query sexplib` -thread -package camomile,core,type-conv,sexplib  /Users/chrisk/local//godi/lib/ocaml/pkg-lib/sexplib/sexplib.cma -c $i;
+    ocamlfind ocamlc -annot -pp "camlp4o -I `ocamlfind query type_conv`  -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma"  -I `ocamlfind query sexplib` -thread -package camomile,core,type-conv,sexplib  /Users/chrisk/local//godi/lib/ocaml/pkg-lib/sexplib/sexplib.cma -c $i;
 done

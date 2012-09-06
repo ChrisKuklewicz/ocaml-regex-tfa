@@ -55,12 +55,12 @@ let simCont ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
   let rec nextStep = function
     | StepChar ((_i,_c) as here) ->
       spark here;
-      HistMap.iter (process here) !m1;
+      HistMap.iter !m1 ~f:(process here);
       cycle here
 
     | StepEnd indexAtEnd ->
       sparkEnd indexAtEnd;
-      HistMap.iter (processEnd indexAtEnd) !m1;
+      HistMap.iter !m1 ~f:(processEnd indexAtEnd);
       cycle (indexAtEnd,newline)
 
   and process ((i,_c) as here) ~key:_ ~data:c =

@@ -1,5 +1,7 @@
-(*pp camlp4o -I `ocamlfind query type-conv` -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma *)
+(*pp camlp4o -I `ocamlfind query type_conv` -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma *)
 (* Common.ml *)
+
+(* changed type-conv to type_conv *)
 
 open Sexplib.Std
 

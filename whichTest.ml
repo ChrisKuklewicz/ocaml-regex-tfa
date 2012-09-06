@@ -69,14 +69,14 @@ module WhichTestMonoid =
       | (AlwaysFalse,_) -> AlwaysFalse
       | (_,AlwaysFalse) -> AlwaysFalse
       | (CheckAll a,CheckAll b) -> 
-        let mergeWTM ~key optA optB =
-          match (optA,optB) with
-              (_,None) -> optA
-            | (None,_) -> optB
-            | (Some (tf1,a),Some (tf2,b)) when tf1=tf2 -> Some (tf1,a @ b)
+        let mergeWTM ~key optAB =
+          match optAB with
+              `Left v1 -> Some v1
+            | `Right v2 -> Some v2
+            | `Both ((tf1,a),(tf2,b)) when tf1=tf2 -> Some (tf1,a @ b)
             | _ -> raise SetFalse (* no need to test the rest *)
         in
-        try CheckAll (WhichTestMap.merge mergeWTM a b)
+        try CheckAll (WhichTestMap.merge a b ~f:mergeWTM)
         with SetFalse -> AlwaysFalse
     let mconcat = function xs -> List.fold_left mappend mempty xs
    end)
@@ -93,6 +93,52 @@ let dominates x y = match (x,y) with
           Some (b2,_) when b1=b2 -> ()
         | _ -> raise SetFalse
     in
-    try (WhichTestMap.iter test a ; true)
+    try (WhichTestMap.iter a ~f:test; true)
     with SetFalse -> false
 
+(*
+
+File "whichTest.ml", line 79, characters 41-49:
+Error: This expression has type
+         key:'a ->
+         ('b * 'c list) option ->
+         ('b * 'c list) option -> ('b * 'c list) option
+       but an expression was expected of type
+         ('d, 'e, 'f) WhichTestMap.t_ =
+           (WhichTestMap.Key.t, 'e, WhichTestMap.Key.comparator)
+           Core.Core_map.t
+
+Argument order changed and merge function has changed, see Core_map_intf.Accessors.merge
+
+val merge : 
+     ('k, 'v1, 'comparator) t
+  -> ('k, 'v2, 'comparator) t
+  -> f:(   key:'k key
+        -> [ `Both of 'v1 * 'v2 | `Left of 'v1 | `Right of 'v2 ] -> 'v3 option)
+        -> ('k, 'v3, 'comparator) t
+
+merges two maps
+
+*)
+
+(*
+
+File "whichTest.ml", line 96, characters 27-31:
+Error: This expression has type
+         key:'a WhichTestMap.key_ -> data:bool * 'b -> unit
+       but an expression was expected of type
+         ('c, 'd, 'e) WhichTestMap.t_ =
+           (WhichTestMap.Key.t, 'd, WhichTestMap.Key.comparator)
+           Core.Core_map.t
+
+Core_map_intf.Accessors.iter is now:
+
+val iter :
+     ('k, 'v, 'a) t
+  -> f:(   key:'k key
+        -> data:'v
+        -> unit)
+  -> unit
+iterator for map
+
+*)
