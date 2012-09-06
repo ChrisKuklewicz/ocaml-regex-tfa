@@ -52,7 +52,7 @@ Add the comparison pass to compress the state, this will change the worst case s
 
 The compression of loop-histories needs to group the stored histories into the right cohorts.  The Haskell chorts are quite broad but I think starting from simflush.ml I can make the new cohorts more narrow.  The loop-history only matters when (the Repeat node has a variable length sub-pattern) and (histories have the same Repeat start) and (either (histories are looping back at the same position) or (histories have same Repeat stop)).
 
-I think the flushUp from the sub-pattern of the Repeat catches (either (histories are looping back at the same position) or (histories have same Repeat stop)). Thus the cohort is already there and ready for compression.  The 
+I think the flushUp from the sub-pattern of the Repeat catches (either (histories are looping back at the same position) or (histories have same Repeat stop)). Thus the cohort is already there and ready for compression.
 
 [r-t]: http://hackage.haskell.org/package/regex-tdfa
 [att1]: http://www2.research.att.com/~gsf/testregex/re-interpretation.html
