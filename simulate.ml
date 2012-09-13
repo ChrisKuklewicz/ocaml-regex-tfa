@@ -139,7 +139,7 @@ let doTasks i h (tl : taskList) =
 (* MAGIC VALUE for prevIn *)
 let rec simCP ?(prevIn=(-1,newline,0)) (cr : coreResult) (utf8string : ustring) : (groupCap*history) list =
   let (piIn,pcIn,init) = prevIn in
-  Printf.printf "simCP %d %d %s\n" piIn init utf8string;
+  (*Printf.printf "simCP %d %d %s\n" piIn init utf8string;*)
   let xsTop = stringToList utf8string
 
   and numTags = Array.length cr.tags

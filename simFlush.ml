@@ -89,6 +89,12 @@ let rec coreToRun (c : coreQ) : runQ =
     | CaptureGroup cg -> RCaptureGroup (cg,coreToRun cg.subPat)
   in { getCore = c; getRun = run; numHistories = 0 }
 
+(*
+  simFlush : 
+     ?prevIn:Common.strIndex * ReadPattern.uchar
+  -> CorePattern.coreResult 
+  -> SimStep.simFeed
+*)
 let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
   let numTags = Array.length cr.tags
   and root = coreToRun cr.cp

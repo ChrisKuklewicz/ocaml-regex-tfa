@@ -42,6 +42,10 @@ end
 
 module WhichTestMap = Core.Core_map.Make(WhichTestCompare)
 
+(*
+ bool is true when the test is expected to be true
+ bool if false when the test is expected to be false
+*)
 type whichTestMap = (bool*(patIndex list)) WhichTestMap.t
 with sexp
 
