@@ -1,0 +1,1 @@
+ocamlfind ocamldep -native-filter -pp "camlp4o -I `ocamlfind query type_conv` -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma" -I `ocamlfind query sexplib` -package camomile,core,type_conv,sexplib /Users/chrisk/local/godi/lib/ocaml/pkg-lib/sexplib/sexplib.cmxa *.ml
