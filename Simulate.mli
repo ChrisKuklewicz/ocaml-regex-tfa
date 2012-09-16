@@ -9,14 +9,18 @@ val comparePos : 'a list -> 'a list -> int
 val compareHistory :
   Common.tagOP array -> Common.history -> Common.history -> int
 val interpretGroups :
-  int -> CorePattern.groupInfo array -> Common.history -> Common.groupCap
-val doTagTask : int -> Common.history -> int * Common.tagTask -> unit
+  Common.strIndex ->
+  CorePattern.groupInfo array -> Common.history -> Common.groupCap
+val doTagTask :
+  Common.strIndex -> Common.history -> Common.tag * Common.tagTask -> unit
 val doOrbitTask :
-  int -> Common.history -> int * int * Common.orbitTask -> unit
+  Common.strIndex ->
+  Common.history -> Common.tag * Common.orbit * Common.orbitTask -> unit
 val doRepTask : Common.history -> int * Common.repTask -> unit
-val doTasks : int -> Common.history -> Common.taskList -> Common.history
+val doTasks :
+  Common.strIndex -> Common.history -> Common.taskList -> Common.history
 val simCP :
-  ?prevIn:CamomileLibrary.UTF8.index * ReadPattern.uchar * int ->
+  ?prevIn:CamomileLibrary.UTF8.index * ReadPattern.uchar * Common.strIndex ->
   CorePattern.coreResult ->
   ReadPattern.ustring -> (Common.groupCap * Common.history) list
 val seeSimResult : Common.groupCap * Common.history -> unit

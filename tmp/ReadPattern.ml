@@ -18,7 +18,7 @@ type parseEnd = (pattern,string) Core.Result.t
 (* ParseFail of string | ParseSucceed of pattern*)
 
 type parseF = (* parseF is only used internally *)
-    ParseWith of (int * uchar-> parseF) * (unit -> parseEnd)
+    ParseWith of (patIndex * uchar-> parseF) * (unit -> parseEnd)
   | ParseError of string
 
 let see pe = match pe with Error e -> e; | Ok p -> show_pattern p

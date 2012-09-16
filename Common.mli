@@ -63,7 +63,7 @@ val sexp_of_taskList : taskList -> Sexplib.Sexp.t
 
 val emptyTaskList : taskList
 
-type tagOP = Maximize | Minimize | Orbit of int | GroupFlag
+type tagOP = Maximize | Minimize | Orbit of orbit | GroupFlag
 val tagOP_of_sexp__ : Sexplib.Sexp.t -> tagOP
 val tagOP_of_sexp : Sexplib.Sexp.t -> tagOP
 val sexp_of_tagOP : tagOP -> Sexplib.Sexp.t
@@ -74,9 +74,9 @@ val wanted_of_sexp : Sexplib.Sexp.t -> wanted
 val sexp_of_wanted : wanted -> Sexplib.Sexp.t
 
 type history = {
-  tagA : int array;
+  tagA : strIndex array;
   repA : int array;
-  orbitA : int list array;
+  orbitA : strIndex list array;
 }
 val history_of_sexp__ : Sexplib.Sexp.t -> history
 val history_of_sexp : Sexplib.Sexp.t -> history

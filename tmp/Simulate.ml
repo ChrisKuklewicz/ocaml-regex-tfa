@@ -91,7 +91,8 @@ let compareHistory ops =
         else 0
       in go 0
 
-let interpretGroups init (giA : groupInfo array) h : groupCap =
+(* init is offset to allow for restarting strIndex *)
+let interpretGroups (init : strIndex) (giA : groupInfo array) (h : history) : groupCap =
   (* Printf.printf "tag array length %d\n" (Array.length h.tagA); *)
   (* Printf.printf "group length %d\n" (1+Array.length giA);*)
   let x = Array.create (1+Array.length giA) (-1,-1) in
@@ -110,14 +111,14 @@ let interpretGroups init (giA : groupInfo array) h : groupCap =
 *)
 (* MAGIC VALUE: tagA values start and are reset to (-1) *)
 (* MAGIC VALUE: orbitA values start and are reset to [] *)
-let doTagTask i h (tag,tagTask) = match tagTask with
+let doTagTask (i : strIndex) h ((tag : tag),tagTask) = match tagTask with
     TagTask -> h.tagA.(tag) <- i
 
     (* tagA value evolves from -1 to 0 when group is fully captured *)
   | ResetGroupStopTask -> h.tagA.(tag) <- (-1)
   | SetGroupStopTask   -> h.tagA.(tag) <-   0
 
-let doOrbitTask i h (tag,orbit,orbitTask) = match orbitTask with
+let doOrbitTask (i : strIndex) h ((tag : tag),(orbit : orbit),orbitTask) = match orbitTask with
     (* tagA value evolves from -1 to 0 when repeat is first entered, from 0 to 1 when it finally leaves *)
   | ResetOrbitTask -> h.tagA.(tag) <- (-1); h.orbitA.(orbit) <- []
   | EnterOrbitTask -> h.tagA.(tag) <-   0;  h.orbitA.(orbit) <- []

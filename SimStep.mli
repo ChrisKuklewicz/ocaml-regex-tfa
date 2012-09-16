@@ -9,6 +9,7 @@ module HistoryID :
     type sexpable = t
     val compare : 'a -> 'a -> int
   end
+
 module HistMap :
   sig
     module Key :

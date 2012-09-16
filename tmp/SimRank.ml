@@ -4,6 +4,24 @@
 
   A modfied simFlush.ml to rank and compress the orbit log.
 
+steps in chage:
+
+modify orbit log to hold rank, log, and log length. (was defined in SimComp.ml)
+
+for bundles leaving repeats do the cohort classification and  compression to rank and empty log.
+Here cohort is based on comparison through entry into repeat (exit is implicitly equal).
+
+add max orbit length tracker in repeat
+
+when sub-pattern is empty of state set max length to zero
+
+when looping in repeat capture new maximum length
+
+add limit paramter
+
+check for max length over limit (after flush up?) and do collection, cohost classification and compression.
+Here cohort classification is based on comparison though entry into repeat.
+
 *)
 
 open Sexplib.Std

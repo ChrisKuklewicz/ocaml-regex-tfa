@@ -31,6 +31,7 @@ TYPE_CONV_PATH "SimFlush"
 
 module RepStateID =
 struct
+  (* RepStateID.t is repA is the count of each tracked repeat, index type is 'rep' *)
   type t = int array with sexp
   type sexpable = t
   let compare = compare
@@ -278,7 +279,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
       doPostTag bUp;
       bUp
 
-  and doEnter ((i,c) as here) bIn rq : int =
+  and doEnter ((i,c) as here) bIn rq : int = (* doEnter returns the total BundleMap.length of the sub-tree *)
     if (Some 0 = snd rq.getCore.takes) || ((rq.numHistories = 0) && (BundleMap.length bIn = 0))
     then 0 (* This short-circuits subtress with only RTest leaves, or with nothing to enter/update *)
     else

@@ -7,15 +7,18 @@ open Sexplib.Std
 
 TYPE_CONV_PATH "Common"
 
+(* Index into string form of regular expression *)
 type patIndex = int with sexp
-type groupIndex = int with sexp
+(* Index into string being searched, stored in history.tagA and history.orbitA *)
 type strIndex = int with sexp
 
-(* Tags are indices into an array of input positions or orbit data.  When the tag is triggered the
-   related task is activated.  This can be done before or after updating the input position when a
-   transition is being made. *)
+(* Index of capture group, 0 is always the whole pattern, into array groupCap *)
+type groupIndex = int with sexp
+(* Index specifying a specific 'tag' into an array of input positions: history.tagA.  *)
 type tag = int with sexp
+(* Index specifying a specific 'repeat' into array of orbit data: history.orbitA *)
 type orbit = int with sexp
+(* Index of a specific 'repeat' into array of count of repetitions: history.repA *)
 type rep = int with sexp
 
 type tagTask = TagTask (* Maximize or Minimize *)
@@ -29,7 +32,7 @@ type orbitTask = EnterOrbitTask  (* On entry to repeat *)
                  | LeaveOrbitTask  (* On leaving repeat *)
 with sexp
 
-type repTask = IncRep of int 
+type repTask = IncRep of int (* int is highest allow count in repA *)
                | LeaveRep 
 with sexp
 
@@ -42,7 +45,7 @@ with sexp
 let emptyTaskList = { tlTag = []; tlOrbit = []; tlRep = [] };
 
 (* The int with Orbit is an array index *)
-type tagOP = Maximize | Minimize | Orbit of int | GroupFlag with sexp
+type tagOP = Maximize | Minimize | Orbit of orbit | GroupFlag with sexp
 
 (* comment out unused things from Haskell *)
 (* type 'a taskUpdate = PreUpdate of 'a | PostUpdate of 'a with sexp *)
@@ -79,13 +82,13 @@ let forArray = Core.Core_array.iter
 let forIArray f arr = Core.Core_array.iteri arr f
 
 (* The history of a given match possibility *)
-type history = { tagA : int array
-               ; repA : int array
-               ; orbitA : (int list) array (* inefficient *)
+type history = { tagA : strIndex array          (* index is 'tag' int, hold positions *)
+               ; repA : int array               (* index is 'rep' int, holds counts *)
+               ; orbitA : (strIndex list) array (* index is 'orbit' int, holds positions *)
                }
 with sexp
 
-type groupCap = (int*int) array
+type groupCap = (strIndex*strIndex) array
 with sexp
 
 let copyHistory { tagA=a;repA=b;orbitA=c } = { tagA = Array.copy a
