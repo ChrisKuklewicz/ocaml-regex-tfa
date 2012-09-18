@@ -1,11 +1,11 @@
 (* UnitTestStep.ml *)
 
-open Sexplib.Std
-open Common
-open Pattern
+(*open Sexplib.Std*)
+(*open Common*)
+(*open Pattern*)
 open ReadPattern
 open CorePattern
-open Simulate
+(*open Simulate*)
 open SimStep
 open Buffer
 open Core.Result
@@ -65,7 +65,7 @@ let runTestFile name =
   let g = open_in name
   in
   Printf.printf "\nLoading Tests from: %s\n" name;
-  Core.In_channel.iter_lines g readTest;
+  Core.In_channel.iter_lines g ~f:readTest;
   close_in g
 
 let runAllTestFiles () = 

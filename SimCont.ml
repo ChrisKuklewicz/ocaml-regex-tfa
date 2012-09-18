@@ -8,13 +8,13 @@
 
 *)
 
-open Sexplib.Std
-open Sexplib.Sexp
-open Sexplib
+(*open Sexplib.Std*)
+(*open Sexplib.Sexp*)
+(*open Sexplib*)
 open CamomileLibrary
 open Common
 open WhichTest
-open Pattern
+(*open Pattern*)
 open ReadPattern
 open CorePattern
 open Simulate
@@ -336,6 +336,6 @@ let uWrapCont (cr : coreResult) (text : ustring) : o =
 
 let wrapSimCont (pattern : ustring) (text: ustring) : o =
   match (parseRegex pattern) with
-      Error err -> (*Printf.printf "Error: %s\n" err;*) []
+      Error _err -> (*Printf.printf "Error: %s\n" err;*) []
     | Ok p -> let cr = toCorePattern p in uWrapCont cr text
 

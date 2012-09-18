@@ -1,7 +1,8 @@
 #!/bin/sh
-rm *.o *.cmx *.cmi *.cmo
+rm *.o *.cmx *.cmi
+# rm *.cmo
 
-FILES="Common.ml Monoid.ml Pattern.ml ReadPattern.ml WhichTest.ml CorePattern.ml Simulate.ml SimStep.ml SimCont.ml SimFlush.ml UnitTest.ml UnitTestStep.ml UnitTestCont.ml UnitTestFlush.ml Testab.ml Testnull.ml"
+FILES="Common.ml CommonRank.ml Monoid.ml Pattern.ml ReadPattern.ml WhichTest.ml CorePattern.ml Simulate.ml SimStep.ml SimCont.ml SimFlush.ml UnitTest.ml UnitTestStep.ml UnitTestCont.ml UnitTestFlush.ml Testab.ml Testnull.ml"
 
 FILES2="Main.ml"
 
@@ -12,8 +13,8 @@ optPACKAGE="camomile,core,type_conv,sexplib"
 #optL=$(ocamlfind query -l-format sexplib)
 
 compileFile () {
-#  echo ocamlfind ocamlopt $2 -annot -pp "camlp4o -I `ocamlfind query type_conv` -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma" -I `ocamlfind query sexplib` -thread -package camomile,core,type_conv,sexplib /Users/chrisk/local//godi/lib/ocaml/pkg-lib/sexplib/sexplib.cmxa -c $1;
-       ocamlfind ocamlopt $2 -annot -pp "camlp4o -I `ocamlfind query type_conv` -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma" -I `ocamlfind query sexplib` -thread -package camomile,core,type_conv,sexplib /Users/chrisk/local/godi/lib/ocaml/pkg-lib/sexplib/sexplib.cmxa -c $1;
+#  echo ocamlfind ocamlopt $2 -w +A-4 -annot -pp "camlp4o -I `ocamlfind query type_conv` -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma" -I `ocamlfind query sexplib` -thread -package camomile,core,type_conv,sexplib /Users/chrisk/local//godi/lib/ocaml/pkg-lib/sexplib/sexplib.cmxa -c $1;
+       ocamlfind ocamlopt $2 -w +A-4 -annot -pp "camlp4o -I `ocamlfind query type_conv` -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma" -I `ocamlfind query sexplib` -thread -package camomile,core,type_conv,sexplib /Users/chrisk/local/godi/lib/ocaml/pkg-lib/sexplib/sexplib.cmxa -c $1;
 }
 
 for i in $FILES; do

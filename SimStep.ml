@@ -40,8 +40,6 @@ open Core.Result
 
 TYPE_CONV_PATH "SimStep"
 
-let us = CamomileLibrary.UPervasives.escaped_uchar
-
 module HistoryID =
   struct
     type t = (patIndex * int array) with sexp
@@ -291,7 +289,7 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
           | 1 -> m2 := HistMap.add ~key:hid_key ~data:postData !m2
           | _ -> (*Printf.printf "   OneChar --discarded--";*) ()
 
-  and doReturn ((i,c) as here) h q context note =
+  and doReturn ((i,_c) as here) h q context note =
     let continue hContinue =
       forOpt q.postTag (fun tag -> doTagTask i hContinue (tag,TagTask));
       dispatch here hContinue context
@@ -381,7 +379,7 @@ let uWrap (cr : coreResult) (text : ustring) : o =
 
 let wrapSimStep (pattern : ustring) (text: ustring) : o =
   match (parseRegex pattern) with
-      Error err -> (*Printf.printf "Error: %s\n" err;*) []
+      Error _err -> (*Printf.printf "Error: %s\n" err;*) []
     | Ok p -> let cr = toCorePattern p in uWrap cr text
 
 let kick s ts =

@@ -14,7 +14,7 @@
 
 *)
 open Sexplib.Std
-open Sexplib.Sexp (*added looking for segfault*)
+(*open Sexplib.Sexp (*added looking for segfault*)*)
 open CamomileLibrary
 open Pattern
 open ReadPattern
@@ -33,10 +33,6 @@ let sexp_of_uset u = Sexplib.Conv.sexp_of_list (Sexplib.Conv.sexp_of_pair sexp_o
 let uset_of_sexp s = List.fold_left (fun x (lo,hi) -> USet.add_range lo hi x) USet.empty (Sexplib.Conv.list_of_sexp (Sexplib.Conv.pair_of_sexp uchar_of_sexp uchar_of_sexp) s)
 
 let all_unicode = USet.add_range (UChar.of_int 0) (UChar.of_int 0x10ffff) USet.empty
-
-(* utility *)
-
-let const a = fun _ -> a
 
 (* the first n elements of xsIn are prepended in reverse order onto the front of ending *)
 let take_append n xsIn ending =
@@ -75,9 +71,12 @@ with sexp
 
 let seeht ht = Sexplib.Sexp.to_string_hum (sexp_of_handleTag ht)
 
-let apply    = function | Apply tag -> Some tag        | _ -> None
-let asAdvice = function | Apply tag -> Advice tag      | s -> s
-let toUpdate = function | Apply tag -> [(tag,TagTask)] | _ -> []
+let apply    = function | Apply tag -> Some tag
+                        | NoTag | Advice _ -> None
+let asAdvice = function | Apply tag -> Advice tag
+                        | s -> s
+let toUpdate = function | Apply tag -> [(tag,TagTask)]
+                        | NoTag | Advice _ -> []
 (* let toPreUpdate = function | Apply tag -> [(tag,PreUpdate TagTask)] | _ -> [] *)
 
 (* Experiment with replacing Test of whichTest with Test of testSet *)
@@ -107,7 +106,8 @@ and repeatQ = { lowBound : int            (* flows up *)
               ; needsOrbit : bool         (* flows up *)
               ; mutable getOrbit : (tag*orbit) option  (* flows down in second pass *)
               ; mutable resetOrbits : (tag*orbit) list (* flows down in second pass *)
-              ; repAt : patIndex          (* useful for identifying this repeat for simFlush *)
+              ; mutable mostLoops : int   (* used in SimRank in orbit compression *)
+              ; repAt : patIndex          (* location in source patter for debugging *)
               ; unRep : coreQ
               }
 
@@ -206,7 +206,7 @@ let addGroupResetsToNullView resetGroupTags setGroupTag nvs =
 (* TODO: go through and use rev_map or something to make this more efficient *)
 let rec cleanNullView : nullView -> nullView = function
   | [] -> []
-  | ((AlwaysTrue,_) as first :: rest) -> first :: []
+  | ((AlwaysTrue,_) as first :: _) -> first :: []
   | ((testSet,_) as first :: rest) -> 
     let notDominated (testSet2,_) = not (dominates testSet testSet2)
     in first :: cleanNullView (List.filter notDominated rest)
@@ -362,6 +362,7 @@ let toCorePattern (patternIn) : coreResult =
                              ; needsOrbit = needsOrbit
                              ; getOrbit = None  (* set below in addTags *)
                              ; resetOrbits = [] (* set below in addTags *)
+                             ; mostLoops = 0
                              ; repAt = patIndex
                              ; unRep = q }
           } in
@@ -410,7 +411,7 @@ let toCorePattern (patternIn) : coreResult =
   let rec nextTagRef = ref 2  (* tag 0 is start of whole pattern, tag 1 is end of whole pattern *)
   and nextOrbitRef = ref 0
   and tagOPsLog = ref [Maximize;Minimize] (* in reverse order, ends with tag 0 *)
-  and uniq' msg op = let tag = !nextTagRef in
+  and uniq' _msg op = let tag = !nextTagRef in
                      begin
                        nextTagRef := tag+1;
                        tagOPsLog := op :: !tagOPsLog;
@@ -580,7 +581,7 @@ let kick e = let pe = parseRegex e in
              in begin
                Printf.printf "OUT: %s\n" (see pe);
                match cp with
-                 | Ok (p1,{cp=p2;tags=at;groups=ag}) -> 
+                 | Ok (p1,{cp=p2;tags=at;groups=ag;_}) -> 
                      let s = Sexplib.Sexp.to_string_hum (Sexplib.Conv.sexp_of_array sexp_of_tagOP at) in Printf.printf "tagOP %s\n" s;
                      let s = Sexplib.Sexp.to_string_hum (Sexplib.Conv.sexp_of_array sexp_of_groupInfo ag) in Printf.printf "groupInfo %s\n" s;
                      let s = Sexplib.Sexp.to_string_hum (sexp_of_pattern p1) in Printf.printf "%s\n" s;

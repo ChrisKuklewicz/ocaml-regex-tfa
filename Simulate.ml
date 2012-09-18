@@ -9,7 +9,7 @@
   XXX todo: rewrite to emplot doTagTask and doRepTask
 *)
 
-open Sexplib.Std
+(*open Sexplib.Std*)
 open CamomileLibrary
 open Common
 open WhichTest
@@ -305,7 +305,7 @@ let rec simCP ?(prevIn=(-1,newline,0)) (cr : coreResult) (utf8string : ustring) 
           forList cg.preReset (fun tag -> doTagTask i h (tag,ResetGroupStopTask));
           doEnter prev here ahead h cg.subPat returnContext
 
-  and doReturn prev ((i,c) as here) ahead h q context note=
+  and doReturn prev ((i,_c) as here) ahead h q context note=
     (* let s = Sexplib.Sexp.to_string_hum (sexp_of_coreQ q)
        in Printf.printf "doReturn (%d,%s) %s\n" i (UPervasives.escaped_uchar c) s;*)
     let continue hContinue =

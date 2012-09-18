@@ -1,6 +1,6 @@
-val forList : 'a Core.Core_list.t -> f:('a -> unit) -> unit
-val forOpt : 'a Core.Option.t -> f:('a -> unit) -> unit
-val forArray : 'a Core.Core_array.t -> f:('a -> unit) -> unit
+val forList : 'a Core.Core_list.t -> ('a -> unit) -> unit
+val forOpt : 'a Core.Option.t -> ('a -> unit) -> unit
+val forArray : 'a Core.Core_array.t -> ('a -> unit) -> unit
 val forIArray : 'a Core.Core_array.t -> (int -> 'a -> unit) -> unit
 
 type patIndex = int

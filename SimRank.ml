@@ -6,7 +6,7 @@
 
 steps in chage:
 
-modify orbit log to hold rank, log, and log length. (was defined in SimComp.ml)
+modify orbit log to hold rank, log, and log length.
 
 for bundles leaving repeats do the cohort classification and  compression to rank and empty log.
 Here cohort is based on comparison through entry into repeat (exit is implicitly equal).
@@ -19,8 +19,8 @@ when looping in repeat capture new maximum length
 
 add limit paramter
 
-check for max length over limit (after flush up?) and do collection, cohost classification and compression.
-Here cohort classification is based on comparison though entry into repeat.
+  check for max length over limit (after flush up?) and do collection, cohort classification and
+  compression.  Here cohort classification is based on comparison though entry into repeat.
 
 *)
 
@@ -28,7 +28,7 @@ open Sexplib.Std
 open Sexplib.Sexp
 open Sexplib
 open CamomileLibrary
-open Common
+open CommonRank
 open WhichTest
 open Pattern
 open ReadPattern
@@ -41,6 +41,53 @@ open Core
 TYPE_CONV_PATH "SimRank"
 
 (* Setup storage types for matching data *)
+(* new orbitLog type *)
+type orbitLog = { basePos : strIndex    (* probably superfluous *)
+                ; ordinal : int option  (* sorted rank *)
+                ; loops : strIndex list (* each loop *)
+                }
+with sexp
+
+type history = { tagA : int array
+               ; repA : int array
+               ; orbitA : (orbitLog option) array
+               }
+with sexp
+
+let copyHistory { tagA=a;repA=b;orbitA=c } = { tagA = Array.copy a
+                                             ; repA = Array.copy b
+                                             ; orbitA = Array.copy c
+                                             }
+
+let safeHistory h = fun () -> copyHistory h
+
+(* TODO split this up into separate functions *)
+let doTagTask i h (tag,tagTask) = match tagTask with
+    TagTask -> h.tagA.(tag) <- i
+
+    (* tagA value evolves from -1 to 0 when group is fully captured *)
+  | ResetGroupStopTask -> h.tagA.(tag) <- (-1)
+  | SetGroupStopTask   -> h.tagA.(tag) <- 0
+
+    (* tagA value evolves from -1 to 0 when repeat is first entered,
+       and from 0 to 1 when it finally leaves *)
+  | ResetOrbitTask ->
+      h.tagA.(tag) <- (-1); h.orbitA.(tag) <- None
+  | EnterOrbitTask -> 
+      h.tagA.(tag) <- 0;
+      h.orbitA.(tag) <- { basePos = i
+                        ; ordinal = None
+                        ; loops = [] }
+  | LeaveOrbitTask ->
+      h.tagA.(tag) <- 1
+  | LoopOrbitTask  ->
+    begin
+      match h.orbitA.(tag) with
+        | None -> failwith "impossible: LoopOrbitTask against a None instead of Some orbitA"
+        | Some o -> h.orbitA.(tag) <- Some { o with loops = i :: o.loops }
+    end
+
+(* to update: copyHistory *)
 
 module RepStateID =
 struct
@@ -72,13 +119,13 @@ let copyBundle b = BundleMap.of_alist_exn
 
 type 'b runPatternB =
   (* Leaf nodes *)
-    ROneChar of uset*('b ref)
+    ROneChar of uset * ('b ref)
   | RTest
   (* Tree nodes *)
-  | RSeq of 'b runQB*('b ref)*'b runQB
-  | ROr of 'b runQB list
-  | RCaptureGroup of capGroupQ*'b runQB
-  | RRepeat of repeatQ*('b ref)*'b runQB
+  | RSeq of ('b runQB) * ('b ref) * 'b runQB)
+  | ROr of ('b runQB) list
+  | RCaptureGroup of capGroupQ * ('b runQB)
+  | RRepeat of repeatQ * ('b ref) * ('b runQB)
 
 and 'b runQB = { getCore : coreQ
                ; getRun : 'b runPatternB

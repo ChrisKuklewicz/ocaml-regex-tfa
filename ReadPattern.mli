@@ -27,52 +27,41 @@ module UTF8Set :
     val choose : t -> elt
     val split : elt -> t -> t * bool * t
   end
-
 type utf8Set = UTF8Set.t
 type uchar = CamomileLibrary.UChar.t
 type ustring = CamomileLibrary.UTF8.t
 type parseEnd = (Pattern.pattern, string) Core.Result.t
+val parseEnd_of_sexp__ :
+  Sexplib.Sexp.t -> (Pattern.pattern, string) Core.Result.t
+val parseEnd_of_sexp : Sexplib.Sexp.t -> parseEnd
+val sexp_of_parseEnd : parseEnd -> Sexplib.Sexp.t
 type parseF =
-    ParseWith of (int * uchar -> parseF) * (unit -> parseEnd)
+    ParseWith of (Common.patIndex * uchar -> parseF) * (unit -> parseEnd)
   | ParseError of string
-
+val parseF_of_sexp__ : Sexplib.Sexp.t -> parseF
+val parseF_of_sexp : Sexplib.Sexp.t -> parseF
+val sexp_of_parseF : parseF -> Sexplib.Sexp.t
 val see :
   (Pattern.pattern, CamomileLibrary.UTF8.t) Core.Result.t ->
   CamomileLibrary.UTF8.t
-
-(*
 val u : char -> CamomileLibrary.UChar.t
 val e : CamomileLibrary.UChar.t -> CamomileLibrary.UTF8.t
 val ee : CamomileLibrary.UChar.t list -> CamomileLibrary.UTF8.t
 val pr : ('a, out_channel, unit) format -> 'a
 val spr : ('a, unit, string) format -> 'a
-*)
-
 val iterParse : parseF -> ustring -> parseEnd
-
 val toUSet : char list -> CamomileLibrary.USet.t
-
 val specials : CamomileLibrary.USet.t
-
 val digits : CamomileLibrary.USet.t
-
 val allowedClasses : UTF8Set.t
-
 val unexpected : CamomileLibrary.UChar.t -> parseF
-
 type parseEnv = {
   parentGroupIndex : Common.groupIndex;
   nextGroupIndexRef : Common.groupIndex ref;
   popCont : (Pattern.pattern -> parseF) option;
 }
-
 val pushBranch :
   parseEnv -> Pattern.branchPat list -> Common.patIndex * uchar -> parseF
-
 val initialParser : unit -> parseF
-
 val parseRegex : ustring -> parseEnd
-
-(*
 val ick : ustring -> parseEnd
-*)

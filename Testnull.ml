@@ -1,11 +1,11 @@
 (* Testab.ml *)
 
-open Common
-open ReadPattern
-open CorePattern
+(*open Common*)
+(*open ReadPattern*)
+(*open CorePattern*)
 open Simulate
-open Core.Result
-open SimStep
+(*open Core.Result*)
+(*open SimStep*)
 
 
 let test () =

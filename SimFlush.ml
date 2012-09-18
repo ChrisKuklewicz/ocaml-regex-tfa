@@ -12,12 +12,12 @@
 *)
 
 open Sexplib.Std
-open Sexplib.Sexp
-open Sexplib
+(*open Sexplib.Sexp*)
+(*open Sexplib*)
 open CamomileLibrary
 open Common
 open WhichTest
-open Pattern
+(*open Pattern*)
 open ReadPattern
 open CorePattern
 open Simulate
@@ -254,7 +254,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
           let aboveLow h = r.lowBound <= h.repA.(r.repDepth)
           in
           let loopNull (h : history) : history option = (* mutates h, no need to copy it *)
-            Option.map (tryTaskList here subRQ) (fun taskList ->
+            Option.map (tryTaskList here subRQ) ~f:(fun taskList ->
               loopIt h;
               doTasks i h taskList);
           and leaveIt h = (* mutates h, no need to make copies *)
@@ -392,7 +392,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
         let aboveLow h = r.lowBound <= h.repA.(r.repDepth)
         in
         let loopNull (h : history) : history option = (* mutates h, no need to copy it *)
-          Option.map (tryTaskListEnd i subRQ) (fun taskList ->
+          Option.map (tryTaskListEnd i subRQ) ~f:(fun taskList ->
             loopIt h;
             doTasks i h taskList)
         and leaveIt h = (* mutates h, no need to make copies *)
@@ -417,7 +417,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
     doPostTag bUp;
     bUp
 
-  and tryTaskList ((i,c) as _here) rq = (* no mutation *)
+  and tryTaskList ((_i,c) as _here) rq = (* no mutation *)
     let (_,pc) = !prev in
     let checkTest (test,(expect,_)) =
       expect = (match test with
@@ -431,7 +431,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
       in if pass then Some taskList else None
     in Core.Core_list.find_map ~f:tryNull rq.getCore.nullQ
 
-  and tryTaskListEnd i rq = (* no mutation *)
+  and tryTaskListEnd _i rq = (* no mutation *)
     let (_,pc) = !prev in
     let checkTest (test,(expect,_)) =
       expect = (match test with
@@ -470,5 +470,5 @@ open Core.Result
 
 let wrapSimFlush (pattern : ustring) (text: ustring) : o =
   match (parseRegex pattern) with
-    | Error err -> (*Printf.printf "Error: %s\n" err;*) []
+    | Error _err -> (*Printf.printf "Error: %s\n" err;*) []
     | Ok p -> let cr = toCorePattern p in uWrapFlush cr text

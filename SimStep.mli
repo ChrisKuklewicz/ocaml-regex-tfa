@@ -1,5 +1,3 @@
-(* val us : CamomileLibrary.UPervasives.uchar -> string *)
-
 module HistoryID :
   sig
     type t = Common.patIndex * int array

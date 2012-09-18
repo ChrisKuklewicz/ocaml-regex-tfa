@@ -20,7 +20,7 @@
 
 open Sexplib.Std
 open Common
-open Monoid
+(*open Monoid*)
 
 TYPE_CONV_PATH "WhichTest"
 
@@ -73,7 +73,7 @@ module WhichTestMonoid =
       | (AlwaysFalse,_) -> AlwaysFalse
       | (_,AlwaysFalse) -> AlwaysFalse
       | (CheckAll a,CheckAll b) -> 
-        let mergeWTM ~key optAB =
+        let mergeWTM ~key:_ optAB =
           match optAB with
               `Left v1 -> Some v1
             | `Right v2 -> Some v2

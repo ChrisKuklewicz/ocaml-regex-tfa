@@ -6,8 +6,6 @@ val uset_of_sexp : Sexplib.Sexp.t -> CamomileLibrary.USet.t
 
 val all_unicode : CamomileLibrary.USet.t
 
-(* val const : 'a -> 'b -> 'a *)
-
 (* val take_append : int -> 'a list -> 'a list -> 'a list *)
 
 val liftOpt : ('a -> 'b -> 'c) -> 'a option -> 'b option -> 'c option
@@ -51,6 +49,7 @@ and repeatQ = {
   needsOrbit : bool;
   mutable getOrbit : (Common.tag * Common.orbit) option;
   mutable resetOrbits : (Common.tag * Common.orbit) list;
+  mutable mostLoops : int;
   repAt : Common.patIndex;
   unRep : coreQ;
 }

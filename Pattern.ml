@@ -15,10 +15,12 @@ let sexp_of_uchar u = Sexplib.Conv.sexp_of_int (UChar.int_of u)
 let ustring_of_sexp s = Sexplib.Conv.string_of_sexp s
 let sexp_of_ustring u = Sexplib.Conv.sexp_of_string u
 
+(*
 (* Convert a single UChar to a UTF8 encoded string *)
 let e c = let b = UTF8.Buf.create 4 in
           UTF8.Buf.add_char b c;
           UTF8.Buf.contents b;;
+*)
 
 (* OLD: USet.fold_range has a typo, corrent here *)
 (*
@@ -128,7 +130,7 @@ let show_pattern patternIn =
     | PEscape c ->  add_char '\\' ; add_uchar c
     | PChar c -> add_uchar c
     | PBracket (i,b) -> doBracket (i,b)
-    | PGroup {subPattern=p} -> add_char '(' ; render p ; add_char ')'
+    | PGroup {subPattern=p; _ } -> add_char '(' ; render p ; add_char ')'
   and doRep = function
     | PQuest -> add_char '?'
     | PPlus -> add_char '+'

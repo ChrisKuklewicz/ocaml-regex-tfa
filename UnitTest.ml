@@ -1,7 +1,7 @@
 (* UnitTest.ml *)
 
-open Sexplib.Std
-open Common
+(*open Sexplib.Std*)
+(*open Common*)
 open ReadPattern
 open CorePattern
 open Simulate
@@ -61,7 +61,7 @@ let runTestFile name =
   let g = open_in name
   in
   Printf.printf "\nLoading Tests from: %s\n" name;
-  Core.In_channel.iter_lines g readTest;
+  Core.In_channel.iter_lines g ~f:readTest;
   close_in g
 
 let runAllTestFiles () = 

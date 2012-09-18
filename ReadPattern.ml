@@ -15,11 +15,13 @@ type ustring = UTF8.t;;
 
 (* external type describing the result of a parse attempt *)
 type parseEnd = (pattern,string) Core.Result.t
+with sexp
 (* ParseFail of string | ParseSucceed of pattern*)
 
-type parseF = (* parseF is only used internally *)
-    ParseWith of (patIndex * uchar-> parseF) * (unit -> parseEnd)
-  | ParseError of string
+(* parseF is only used internally *)
+type parseF = ParseWith of (patIndex * uchar-> parseF) * (unit -> parseEnd)
+            | ParseError of string
+with sexp
 
 let see pe = match pe with Error e -> e; | Ok p -> show_pattern p
 
@@ -115,7 +117,7 @@ let rec pushBranch env branches (iPB,cPB) =
           ))
 *)
       | imp -> failwith (spr "Impossible character (%c) in match statement when at position %i in regular expression" imp iNP)
-  and post pieces cP rep = match pieces with
+  and post pieces _cP rep = match pieces with
       ((PAtom a,i)::xs) -> let data = ((PRepeat (a,rep),i) :: xs) in ParseWith (nextPiece data,endPiece data)
     | ((PAnchor _,_)::_) -> ParseError "Cannot apply a postfix repetition operator to an anchor"
     | ((PRepeat _,_)::_) -> ParseError "Cannot appply more than one postfix repetition operator in a row"
@@ -159,7 +161,7 @@ let rec pushBranch env branches (iPB,cPB) =
     let die = fun () -> Error "expected right bracket" in
     let diePB c = fun () -> Error (spr "expected closing %c and ]" (UChar.char_of c)) in
     (* Establish lexical context with "invert" *)
-    let rec startBracket invert (iSB,cSB) =
+    let startBracket invert (iSB,cSB) =
       (* Establish lexical context with "xs" which is built in reverse order *)
       let rec inBracket xs (_i,cIB) =
         (* define how to hand [: :] and [. .] and [= =] *)
@@ -216,7 +218,7 @@ let rec pushBranch env branches (iPB,cPB) =
             | (BPChar cLeft::ys) -> if compareBC cLeft cRight <= 0 then cont (BPRange (cLeft,cRight)::ys)
                 else ParseError "the end point of the dashed character range is less than the starting point"
             | (BPRange _::_) -> ParseError "a dash cannot follow a dashed range in a bracket"
-            | (BPSet _::ys) -> ParseError "cannot use a character set as a starting point of range"
+            | (BPSet _::_) -> ParseError "cannot use a character set as a starting point of range"
             | [] -> ParseError "a dash before here is not allowed" (* probably impossible to trigger *)
         in
         if cIB = u ']' then endBracket xs else

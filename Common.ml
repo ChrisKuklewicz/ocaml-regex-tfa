@@ -74,12 +74,11 @@ type orbitTransformer = orbitLog -> orbitLog
 *)
 
 (* convenience names for iterating *)
-let forList = Core.Core_list.iter
-let forOpt = Core.Option.iter
-let forArray = Core.Core_array.iter
+let forList list f = Core.Core_list.iter list ~f:f
+let forOpt opt f = Core.Option.iter opt ~f:f
+let forArray arr f = Core.Core_array.iter arr ~f:f
 (* let mapOpt f o = Core.Option.map o ~f:f *)
-
-let forIArray f arr = Core.Core_array.iteri arr f
+let forIArray arr f = Core.Core_array.iteri arr ~f:f
 
 (* The history of a given match possibility *)
 type history = { tagA : strIndex array          (* index is 'tag' int, hold positions *)
