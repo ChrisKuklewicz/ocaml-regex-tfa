@@ -3,3 +3,4 @@
 #require "core";;
 #require "core_extended";;
 #require "camomile";;
+1+1;;
