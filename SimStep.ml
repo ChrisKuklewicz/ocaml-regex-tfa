@@ -31,6 +31,7 @@
 open Sexplib.Std
 open CamomileLibrary
 open Common
+open History
 open WhichTest
 open Pattern
 open ReadPattern
@@ -356,7 +357,7 @@ let simStep  ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
   in
   nextStep
 
-type o = (Common.groupCap * Common.history) list
+type o = (Common.groupCap * History.history) list
 
 let uWrap (cr : coreResult) (text : ustring) : o =
   let indexAtEnd = String.length text
@@ -400,5 +401,6 @@ let kick s ts =
 
 let test () =
   begin
+    Printf.printf "SimStep.test\n";
     kick "(a*){2}(x)" ["x";"xx";"ax";"aax";"aaax";"aaaax"]
   end

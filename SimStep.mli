@@ -125,7 +125,7 @@ module HistMap :
   end
 
 type postData = {
-  pHistory : Common.history;
+  pHistory : History.history;
   pPostTag : Common.tag option;
   pContext : (Simulate.simStack * CorePattern.coreQ) list;
 }
@@ -136,13 +136,13 @@ type stepData =
     StepChar of (Common.strIndex * ReadPattern.uchar)
   | StepEnd of Common.strIndex
 
-type simFeed = stepData -> Common.history list
+type simFeed = stepData -> History.history list
 
 val simStep :
   ?prevIn:Common.strIndex * ReadPattern.uchar ->
   CorePattern.coreResult -> simFeed
 
-type o = (Common.groupCap * Common.history) list
+type o = (Common.groupCap * History.history) list
 
 val uWrap : CorePattern.coreResult -> ReadPattern.ustring -> o
 

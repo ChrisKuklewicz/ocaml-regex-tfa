@@ -1,4 +1,4 @@
-type contData = { cHistory : Common.history; cAt : CorePattern.coreQ; }
+type contData = { cHistory : History.history; cAt : CorePattern.coreQ; }
 type contMap = contData SimStep.HistMap.t
 val simCont :
   ?prevIn:Common.strIndex * ReadPattern.uchar ->

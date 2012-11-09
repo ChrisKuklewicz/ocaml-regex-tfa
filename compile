@@ -1,8 +1,12 @@
 #!/bin/sh
-rm *.o *.cmx *.cmi
+#rm *.o *.cmx *.cmi
 # rm *.cmo
 
-FILES="Common.ml CommonRank.ml Monoid.ml Pattern.ml ReadPattern.ml WhichTest.ml CorePattern.ml Simulate.ml SimStep.ml SimCont.ml SimFlush.ml UnitTest.ml UnitTestStep.ml UnitTestCont.ml UnitTestFlush.ml Testab.ml Testnull.ml"
+# ignore: CommonRank.ml
+
+FILES="Common.ml History.ml Monoid.ml Pattern.ml ReadPattern.ml WhichTest.ml CorePattern.ml Simulate.ml SimStep.ml SimCont.ml SimFlush.ml SimRank.ml UnitTest.ml UnitTestStep.ml UnitTestCont.ml UnitTestFlush.ml UnitTestRank.ml Testab.ml Testnull.ml"
+
+#FILES="SimRank.ml"
 
 FILES2="Main.ml"
 
@@ -26,6 +30,8 @@ for i in $FILES; do
     else
         echo "$i to ${i}i"
         compileFile "$i" -i  > ${i}i
+        compileFile "${i}i"; 
+        compileFile "$i"
     fi
 done
 
@@ -34,20 +40,23 @@ for i in $FILES2; do
     compileFile "$i"
 done
 
-libs="common.cmx monoid.cmx pattern.cmx readPattern.cmx whichTest.cmx corePattern.cmx simulate.cmx"
+# These are pretty universal
+libs="Common.cmx History.cmx Monoid.cmx Pattern.cmx ReadPattern.cmx WhichTest.cmx CorePattern.cmx Simulate.cmx"
 
-ocamlfind ocamlopt -thread -o main -linkpkg -package "$optPACKAGE" $libs simStep.cmx main.cmx
+ocamlfind ocamlopt -thread -o Main -linkpkg -package "$optPACKAGE" $libs SimStep.cmx Main.cmx
 
-rm UnitTest
-ocamlfind ocamlopt -thread -o unitTest -linkpkg -package camomile,core,type_conv,sexplib common.cmx monoid.cmx pattern.cmx readPattern.cmx whichTest.cmx corePattern.cmx simulate.cmx unitTest.cmx
+#rm UnitTest
+ocamlfind ocamlopt -thread -o UnitTest -linkpkg -package camomile,core,type_conv,sexplib $libs UnitTest.cmx
 
-ocamlfind ocamlopt -thread -o unitTestStep -linkpkg -package "$optPACKAGE" $libs simStep.cmx unitTestStep.cmx
+ocamlfind ocamlopt -thread -o UnitTestStep -linkpkg -package "$optPACKAGE" $libs SimStep.cmx UnitTestStep.cmx
 
-ocamlfind ocamlopt -thread -o unitTestCont -linkpkg -package "$optPACKAGE" $libs simStep.cmx simCont.cmx unitTestCont.cmx
+ocamlfind ocamlopt -thread -o UnitTestCont -linkpkg -package "$optPACKAGE" $libs SimStep.cmx SimCont.cmx UnitTestCont.cmx
 
-ocamlfind ocamlopt -thread -o unitTestFlush -linkpkg -package "$optPACKAGE" $libs simStep.cmx simCont.cmx simFlush.cmx unitTestFlush.cmx
+ocamlfind ocamlopt -thread -o UnitTestFlush -linkpkg -package "$optPACKAGE" $libs SimStep.cmx SimCont.cmx SimFlush.cmx UnitTestFlush.cmx
 
-ocamlfind ocamlopt -thread -o testab -linkpkg -package "$optPACKAGE" $libs simStep.cmx testab.cmx
+ocamlfind ocamlopt -thread -o UnitTestRank -linkpkg -package "$optPACKAGE" $libs SimStep.cmx SimRank.cmx UnitTestRank.cmx
 
-ocamlfind ocamlopt -thread -o testnull -linkpkg -package "$optPACKAGE" $libs simStep.cmx testnull.cmx
+ocamlfind ocamlopt -thread -o Testab -linkpkg -package "$optPACKAGE" $libs SimStep.cmx Testab.cmx
+
+ocamlfind ocamlopt -thread -o Testnull -linkpkg -package "$optPACKAGE" $libs SimStep.cmx Testnull.cmx
 

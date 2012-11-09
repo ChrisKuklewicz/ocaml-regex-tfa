@@ -1,1 +1,1 @@
-ocamlfind ocamlbrowser -package camomile,core,type_conv,sexplib
+ocamlfind ocamlbrowser -package camomile,core,core_extended,type_conv,sexplib

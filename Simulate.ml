@@ -6,12 +6,13 @@
    This will be made to work on the test suite before proceeding.
    This will then be used as a basis for comparision to build the NFA matcher.
 
-  XXX todo: rewrite to emplot doTagTask and doRepTask
+  XXX todo: rewrite to employ doTagTask and doRepTask
 *)
 
 (*open Sexplib.Std*)
 open CamomileLibrary
 open Common
+open History
 open WhichTest
 open Pattern
 open ReadPattern
@@ -92,7 +93,7 @@ let compareHistory ops =
       in go 0
 
 (* init is offset to allow for restarting strIndex *)
-let interpretGroups (init : strIndex) (giA : groupInfo array) (h : history) : groupCap =
+let interpretGroups (init : strIndex) (giA : groupInfo array) (h : 'o historyP) : groupCap =
   (* Printf.printf "tag array length %d\n" (Array.length h.tagA); *)
   (* Printf.printf "group length %d\n" (1+Array.length giA);*)
   let x = Array.create (1+Array.length giA) (-1,-1) in
@@ -111,22 +112,30 @@ let interpretGroups (init : strIndex) (giA : groupInfo array) (h : history) : gr
 *)
 (* MAGIC VALUE: tagA values start and are reset to (-1) *)
 (* MAGIC VALUE: orbitA values start and are reset to [] *)
-let doTagTask (i : strIndex) h ((tag : tag),tagTask) = match tagTask with
+let doTagTask (i : strIndex) (h : 'o historyP) ((tag : tag),tagTask) = match tagTask with
     TagTask -> h.tagA.(tag) <- i
 
     (* tagA value evolves from -1 to 0 when group is fully captured *)
   | ResetGroupStopTask -> h.tagA.(tag) <- (-1)
   | SetGroupStopTask   -> h.tagA.(tag) <-   0
 
-let doOrbitTask (i : strIndex) h ((tag : tag),(orbit : orbit),orbitTask) = match orbitTask with
+let assertTagA message h tag value =
+  if h.tagA.(tag) <> value
+  then failwith (Printf.sprintf "%s h.tagA.(%i) == %i <> %i)" message tag h.tagA.(tag) value)
+  else ()
+
+let doOrbitTask (i : strIndex) (h : history) ((tag : tag),(orbit : orbit),orbitTask) = match orbitTask with
     (* tagA value evolves from -1 to 0 when repeat is first entered, from 0 to 1 when it finally leaves *)
   | ResetOrbitTask -> h.tagA.(tag) <- (-1); h.orbitA.(orbit) <- []
-  | EnterOrbitTask -> h.tagA.(tag) <-   0;  h.orbitA.(orbit) <- []
-  | LoopOrbitTask  ->                       h.orbitA.(orbit) <- i :: h.orbitA.(orbit)
-  | LeaveOrbitTask -> h.tagA.(tag) <-   1
+  | EnterOrbitTask -> assertTagA "Simulate.doOrbitTask EnterOrbitTask" h tag (-1);
+                      h.tagA.(tag) <-   0;(*h.orbitA.(orbit) <- []*)
+  | LoopOrbitTask  -> assertTagA "Simulate.doOrbitTask LoopOrbitTask" h tag 0;
+                                            h.orbitA.(orbit) <- i :: h.orbitA.(orbit)
+  | LeaveOrbitTask -> assertTagA "Simulate.doOrbitTask LeaveOrbitTask" h tag 0;
+                      h.tagA.(tag) <-   1
 
 (* MAGIC VALUE: repA values start and are reset to 0 *)
-let doRepTask h (tag,repTask) = match repTask with
+let doRepTask (h : 'o historyP) (tag,repTask) = match repTask with
     IncRep topCount -> h.repA.(tag) <- min topCount (1+h.repA.(tag))
   | LeaveRep -> h.repA.(tag) <- 0
 
@@ -409,17 +418,23 @@ let kick s ts =
       ()
 
 let test () =
-  kick "(a*){2}(x)" ["x";"xx";"ax";"aax";"aaax";"aaaax"]
+  begin
+    Printf.printf "Simulate.test\n";
+    kick "(a*){2}(x)" ["x";"xx";"ax";"aax";"aaax";"aaaax"]
+  end
 
 let test2 () =
-  kick "(a)(b*)(b{3})" ["a";"ab";"abb";"abbb";"abbbb";"abbbbb"];
-  kick "a(b|cd)*e" ["xae";"xxxabe";"xxxxacde";"xxxxxxabbe";"xxxxxxabcde";"xxxxxxxxacdbe"];
-  kick "a(b|cd)*e" ["abc";"ae";"abe";"acde";"abbe";"abcde";"acdbe"];
-  kick "(abcde|abc|de|ab|cde|a|bc|c)" ["abcde"];
-  kick "^(abc|de|ab|cde|a|bc|c)*$" ["abcde"];
-  kick "(abc|de|fg|a|bcd|efg|ab|cdef|g|d|cde|cd|ef)*" ["abcdefg"];  (* very good example *)
-  kick "^(abc|de|fg|a|bcd|efg|ab|cdef|g|d|cde|cd|ef)*$" ["abcdefg"];  (* very good example *)
-  kick "^((abc|de|fg|a|bcd|efg|ab|cdef|g|d|cde|cd|ef)*)*$" ["abcdefg"];  (* good example *)
+  begin
+    Printf.printf "Simulate.test2\n";
+    kick "(a)(b*)(b{3})" ["a";"ab";"abb";"abbb";"abbbb";"abbbbb"];
+    kick "a(b|cd)*e" ["xae";"xxxabe";"xxxxacde";"xxxxxxabbe";"xxxxxxabcde";"xxxxxxxxacdbe"];
+    kick "a(b|cd)*e" ["abc";"ae";"abe";"acde";"abbe";"abcde";"acdbe"];
+    kick "(abcde|abc|de|ab|cde|a|bc|c)" ["abcde"];
+    kick "^(abc|de|ab|cde|a|bc|c)*$" ["abcde"];
+    kick "(abc|de|fg|a|bcd|efg|ab|cdef|g|d|cde|cd|ef)*" ["abcdefg"];  (* very good example *)
+    kick "^(abc|de|fg|a|bcd|efg|ab|cdef|g|d|cde|cd|ef)*$" ["abcdefg"];  (* very good example *)
+    kick "^((abc|de|fg|a|bcd|efg|ab|cdef|g|d|cde|cd|ef)*)*$" ["abcdefg"];  (* good example *)
+  end
 
 (*
 Pattern: (abc|de|fg|a|bcd|efg|ab|cdef|g|d|cde|cd|ef)*

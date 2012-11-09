@@ -16,16 +16,51 @@ open Sexplib.Std
 (*open Sexplib*)
 open CamomileLibrary
 open Common
+open History
 open WhichTest
-(*open Pattern*)
 open ReadPattern
 open CorePattern
-open Simulate
-open SimStep
 open List
 open Core
 
 TYPE_CONV_PATH "SimFlush"
+
+module ImportSimulate = struct
+  include (Simulate :
+    sig
+      val newline : CamomileLibrary.UChar.t
+      val stringToList :
+        ReadPattern.ustring -> (strIndex * ReadPattern.uchar) list
+      val compareHistory :
+        tagOP array -> history -> history -> int
+      val interpretGroups :
+        strIndex ->
+        CorePattern.groupInfo array -> 'o historyP -> groupCap
+      val doTagTask :
+        strIndex ->
+        'o historyP -> tag * tagTask -> unit
+      val doOrbitTask :
+        strIndex ->
+        history -> tag * orbit * orbitTask -> unit
+      val doRepTask : 'o historyP -> int * repTask -> unit
+      val doTasks :
+        strIndex -> history -> taskList -> history
+    end)
+end
+open ImportSimulate
+
+module ImportSimStep = struct
+  include (SimStep :
+    sig
+      type stepData =
+          StepChar of (strIndex * ReadPattern.uchar)
+        | StepEnd of strIndex
+      type simFeed = stepData -> history list
+
+      type o = (groupCap * history) list
+    end)
+end
+open ImportSimStep
 
 (* Setup storage types for matching data *)
 
@@ -33,7 +68,7 @@ module RepStateID =
 struct
   (* RepStateID.t is repA is the count of each tracked repeat, index type is 'rep' *)
   type t = int array with sexp
-  type sexpable = t
+  (*type sexpable = t*)
   let compare = compare
 end
 
@@ -73,7 +108,8 @@ and 'b runQB = { getCore : coreQ
                ; mutable numHistories : int
                }
 
-type runPattern = bundle runPatternB
+(* type runPattern = bundle runPatternB *)
+
 type runQ = bundle runQB
 
 let rec coreToRun (c : coreQ) : runQ =
@@ -327,11 +363,15 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
             nFront+nBack
 
           | RRepeat (r,stored,subRQ) ->
+            let doOrbit h' task = (fun (t,o) -> doOrbitTask i h' (t,o,task))
+            in
             let b = mergeBundles !stored
               (shiftBundle bIn (fun h ->
                 if h.repA.(r.repDepth) <> 0
                 then failwith "impossible: doEnter.Repeat found non-zero h.repA.(r.repDepth)";
-                doRepTask h (r.repDepth,IncRep r.topCount);
+                doRepTask h (r.repDepth, IncRep r.topCount);
+                forList r.resetOrbits (doOrbit h ResetOrbitTask);
+                forOpt r.getOrbit (doOrbit h EnterOrbitTask);
                 h))
             in
             stored := bzero;

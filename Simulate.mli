@@ -7,23 +7,24 @@ val stringToList :
   ReadPattern.ustring -> (Common.strIndex * ReadPattern.uchar) list
 val comparePos : 'a list -> 'a list -> int
 val compareHistory :
-  Common.tagOP array -> Common.history -> Common.history -> int
+  Common.tagOP array -> History.history -> History.history -> int
 val interpretGroups :
   Common.strIndex ->
-  CorePattern.groupInfo array -> Common.history -> Common.groupCap
+  CorePattern.groupInfo array -> 'o History.historyP -> Common.groupCap
 val doTagTask :
-  Common.strIndex -> Common.history -> Common.tag * Common.tagTask -> unit
+  Common.strIndex ->
+  'o History.historyP -> Common.tag * Common.tagTask -> unit
 val doOrbitTask :
   Common.strIndex ->
-  Common.history -> Common.tag * Common.orbit * Common.orbitTask -> unit
-val doRepTask : Common.history -> int * Common.repTask -> unit
+  History.history -> Common.tag * Common.orbit * Common.orbitTask -> unit
+val doRepTask : 'o History.historyP -> int * Common.repTask -> unit
 val doTasks :
-  Common.strIndex -> Common.history -> Common.taskList -> Common.history
+  Common.strIndex -> History.history -> Common.taskList -> History.history
 val simCP :
   ?prevIn:CamomileLibrary.UTF8.index * ReadPattern.uchar * Common.strIndex ->
   CorePattern.coreResult ->
-  ReadPattern.ustring -> (Common.groupCap * Common.history) list
-val seeSimResult : Common.groupCap * Common.history -> unit
+  ReadPattern.ustring -> (Common.groupCap * History.history) list
+val seeSimResult : Common.groupCap * History.history -> unit
 val kick :
   ReadPattern.ustring -> ReadPattern.ustring Core.Core_list.t -> unit
 val test : unit -> unit

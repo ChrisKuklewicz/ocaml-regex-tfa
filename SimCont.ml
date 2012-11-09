@@ -13,6 +13,7 @@
 (*open Sexplib*)
 open CamomileLibrary
 open Common
+open History
 open WhichTest
 (*open Pattern*)
 open ReadPattern

@@ -77,26 +77,8 @@ type orbitTransformer = orbitLog -> orbitLog
 let forList list f = Core.Core_list.iter list ~f:f
 let forOpt opt f = Core.Option.iter opt ~f:f
 let forArray arr f = Core.Core_array.iter arr ~f:f
-(* let mapOpt f o = Core.Option.map o ~f:f *)
+let mapOpt f o = Core.Option.map o ~f:f
 let forIArray arr f = Core.Core_array.iteri arr ~f:f
 
-(* The history of a given match possibility *)
-type history = { tagA : strIndex array          (* index is 'tag' int, hold positions *)
-               ; repA : int array               (* index is 'rep' int, holds counts *)
-               ; orbitA : (strIndex list) array (* index is 'orbit' int, holds positions *)
-               }
-with sexp
-
 type groupCap = (strIndex*strIndex) array
-with sexp
-
-let copyHistory { tagA=a;repA=b;orbitA=c } = { tagA = Array.copy a
-                                             ; repA = Array.copy b
-                                             ; orbitA = Array.copy c
-                                             }
-
-let safeHistory h = fun () -> copyHistory h
-
-(* Used in saveContext as a concrete call stack *)
-type 'a continueTo = ContEnter of 'a | ContReturn of 'a | ContRoot
 with sexp

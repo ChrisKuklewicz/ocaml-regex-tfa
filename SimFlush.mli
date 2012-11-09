@@ -1,3 +1,27 @@
+(*
+module ImportSimulate :
+  sig
+    val newline : CamomileLibrary.UChar.t
+    val stringToList :
+      ReadPattern.ustring -> (Common.strIndex * ReadPattern.uchar) list
+    val compareHistory :
+      Common.tagOP array -> History.history -> History.history -> int
+    val interpretGroups :
+      Common.strIndex ->
+      CorePattern.groupInfo array -> 'o History.historyP -> Common.groupCap
+    val doTagTask :
+      Common.strIndex ->
+      'o History.historyP -> Common.tag * Common.tagTask -> unit
+    val doOrbitTask :
+      Common.strIndex ->
+      History.history -> Common.tag * Common.orbit * Common.orbitTask -> unit
+    val doRepTask : 'o History.historyP -> int * Common.repTask -> unit
+    val doTasks :
+      Common.strIndex -> History.history -> Common.taskList -> History.history
+  end
+*)
+(*
+
 module RepStateID :
   sig
     type t = int array
@@ -7,6 +31,7 @@ module RepStateID :
     type sexpable = t
     val compare : 'a -> 'a -> int
   end
+
 module BundleMap :
   sig
     module Key :
@@ -122,12 +147,19 @@ module BundleMap :
       ('k, 'v, 'comparator) t_ ->
       ('k key_, 'v, 'comparator) Core.Core_map.tree
   end
-type bundle = Common.history BundleMap.t
+
+type bundle = History.history BundleMap.t
+
 val bzero : ('a, 'b, ('a, 'c, 'b) BundleMap.t_) BundleMap.create_options
-val forBundle : bundle -> (Common.history -> unit) -> unit
+
+val forBundle : bundle -> (History.history -> unit) -> unit
+
 val copyBundle :
-  ('a, Common.history, 'b) BundleMap.t_ ->
-  ('c, Common.history, 'd) BundleMap.t_
+  ('a, 'b History.historyP, 'c) BundleMap.t_ ->
+  ('d, 'b History.historyP, 'e) BundleMap.t_
+*)
+
+(*
 type 'b runPatternB =
     ROneChar of CorePattern.uset * 'b ref
   | RTest
@@ -135,16 +167,35 @@ type 'b runPatternB =
   | ROr of 'b runQB list
   | RCaptureGroup of CorePattern.capGroupQ * 'b runQB
   | RRepeat of CorePattern.repeatQ * 'b ref * 'b runQB
+
 and 'b runQB = {
   getCore : CorePattern.coreQ;
   getRun : 'b runPatternB;
   mutable numHistories : int;
 }
+
 type runPattern = bundle runPatternB
+
 type runQ = bundle runQB
+
 val coreToRun : CorePattern.coreQ -> runQ
+    *)
+
+module ImportSimStep :
+  sig
+    type stepData =
+        StepChar of (Common.strIndex * ReadPattern.uchar)
+      | StepEnd of Common.strIndex
+    type simFeed = stepData -> History.history list
+    type o = (Common.groupCap * History.history) list
+  end
+
 val simFlush :
   ?prevIn:Common.strIndex * ReadPattern.uchar ->
-  CorePattern.coreResult -> SimStep.simFeed
-val uWrapFlush : CorePattern.coreResult -> ReadPattern.ustring -> SimStep.o
-val wrapSimFlush : ReadPattern.ustring -> ReadPattern.ustring -> SimStep.o
+  CorePattern.coreResult -> ImportSimStep.simFeed
+
+val uWrapFlush :
+  CorePattern.coreResult -> ReadPattern.ustring -> ImportSimStep.o
+
+val wrapSimFlush :
+  ReadPattern.ustring -> ReadPattern.ustring -> ImportSimStep.o
