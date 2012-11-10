@@ -11,11 +11,11 @@ DONE: modify orbit log to hold rank, log, and log length.
 DONE: for bundles leaving repeats do the cohort classification and  compression to rank and empty log.
 Here cohort is based on comparison of entry strIndex into repeat (exit is implicitly equal).
 
-add max orbit length tracker in repeat
+DONE: add field for longestOrbit to RRepeat
 
-when sub-pattern is empty of state set max length to zero
+DONE: when sub-pattern is empty of state set longest to zero, also zero longest in flushUpEnd
 
-when looping in repeat capture new maximum length
+when looping in repeat capture new longest length
 
 add limit paramter
 
@@ -78,6 +78,22 @@ type history = { tagA : int array
                }
 with sexp
 
+let emptyOrbitLog = { basePos = (-1)
+                    ; ordinal = None
+                    ; loopsCount = 0
+                    ; loops = [] }
+
+let newOrbitLog i = { emptyOrbitLog with basePos = i }
+
+let appendOrbitLog (i : strIndex) (old : orbitLog) : orbitLog =
+  { old with loopsCount = succ old.loopsCount; loops = i :: old.loops }
+
+let assertTagA message h tag value =
+  if h.tagA.(tag) <> value
+  then failwith (Printf.sprintf "%s h.tagA.(%i) == %i <> %i)" message tag h.tagA.(tag) value)
+
+let setOrdinal hLog rank = { hLog with ordinal = Some rank; loopsCount = 0; loops = [] }
+
 (* shadow Common.copyHistory *)
 let copyHistory { tagA=a;repA=b;orbitA=c } = { tagA = Array.copy a
                                              ; repA = Array.copy b
@@ -119,7 +135,7 @@ let compressLog histories (_tag,orbit) =
         | 0 -> comparePos (List.rev h1Log.loops) (List.rev h2Log.loops)
         | x -> x)
   and setOrder (rank : int) (h : history) = Option.iter h.orbitA.(orbit)
-    ~f:(fun hLog -> h.orbitA.(orbit) <- Some { hLog with ordinal = Some rank; loopsCount = 0; loops = [] })
+    ~f:(fun hLog -> h.orbitA.(orbit) <- Some (setOrdinal hLog rank))
       
   in
   let eqOrdLoops h1 h2 = 0 = cmpOrdLoops h1 h2
@@ -203,20 +219,6 @@ let compareHistory (ops : tagOP array) : history -> history -> int =
       in go 0
 
 (* Replace Simulate.doOrbitTask *)
-let emptyOrbitLog = { basePos = (-1)
-                    ; ordinal = None
-                    ; loopsCount = 0
-                    ; loops = [] }
-
-let newOrbitLog i = { emptyOrbitLog with basePos = i }
-
-let appendOrbitLog (i : strIndex) (old : orbitLog) : orbitLog =
-  { old with loopsCount = succ old.loopsCount; loops = i :: old.loops }
-
-let assertTagA message h tag value =
-  if h.tagA.(tag) <> value
-  then failwith (Printf.sprintf "%s h.tagA.(%i) == %i <> %i)" message tag h.tagA.(tag) value)
-
 let doOrbitTask (i : strIndex) (h : history) ((tag : tag),(orbit : orbit),orbitTask) : unit = match orbitTask with
     (* tagA value evolves from -1 to 0 when repeat is first entered, from 0 to 1 when it finally leaves *)
 
@@ -275,6 +277,8 @@ let copyBundle b = BundleMap.of_alist_exn
    The hasBundle field will store the bool from doEnter for later optimization.
  *)
 
+type longestOrbit = int ref
+
 type 'b runPatternB =
   (* Leaf nodes *)
     ROneChar of uset * ('b ref)
@@ -283,7 +287,7 @@ type 'b runPatternB =
   | RSeq of ('b runQB) * ('b ref) * ('b runQB)
   | ROr of ('b runQB) list
   | RCaptureGroup of capGroupQ * ('b runQB)
-  | RRepeat of repeatQ * ('b ref) * ('b runQB)
+  | RRepeat of repeatQ * ('b ref) * longestOrbit * ('b runQB)
 
 and 'b runQB = { getCore : coreQ
                ; getRun : 'b runPatternB
@@ -301,6 +305,7 @@ let rec coreToRun (c : coreQ) : runQ =
                                   coreToRun qBack)
     | Repeat r -> RRepeat (r,
                            ref bzero,
+                           ref 0,
                            coreToRun r.unRep)
     | Test _ -> RTest
     | OneChar (uc,_) -> ROneChar (uc,ref bzero)
@@ -461,7 +466,7 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
            3) It may not be at a fixed high bound and be held for doEnter
         *)
 
-        | RRepeat (r,stored,subRQ) ->
+        | RRepeat (r,stored,longest,subRQ) ->
           let histories = BundleMap.data (flushUp here subRQ)  (* disassembleBundle*)
           and doOrbit h' task = (fun (t,o) -> doOrbitTask i h' (t,o,task))
           in
@@ -474,17 +479,20 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
             | Some hi -> (fun h -> hi = h.repA.(r.repDepth))
           in
 
-          (* Make copies of history on way to putting bLoop in stored *)
-          let loopEnter h =  (* does not mutate h, may copy *)
+          (* Make copies of history on way to putting in stored *)
+          let loopThem h =  (* does not mutate h, may copy *)
             if atLimit h
             then None
             else let hLoop = copyHistory h
                  in (loopIt hLoop; Some hLoop)
           in
-          (* makes copies of histories as needed *)
-          let bLoop = assembleBundle (List.filter_map histories ~f:loopEnter)
-          in
-          stored := bLoop;
+          longest := Option.value_map r.getOrbit ~default:0 ~f:(fun (_t,o) ->
+              List.fold_left ~init:!longest ~f:max (
+                List.map histories ~f:(fun h ->
+                  Option.value_map h.orbitA.(o) ~default:0 ~f:(fun hLog ->
+                    hLog.loopsCount))));
+          (* makes copies of histories as needed, retrieved by doEnter *)
+          stored := assembleBundle (List.filter_map histories ~f:loopThem);
 
           (* Now mutate histories on way out of flushUp *)
           let aboveLow h = r.lowBound <= h.repA.(r.repDepth)
@@ -561,10 +569,10 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
             nFront+nBack
 
           (* These two cases (RSeq and RRepeat) set stored to bzero *)
-          | RRepeat (r,stored,subRQ) ->
+          | RRepeat (r,stored,longest,subRQ) ->
             let doOrbit h' task = (fun (t,o) -> doOrbitTask i h' (t,o,task))
             in
-            let b = mergeBundles !stored
+            let b = mergeBundles !stored  (* retrieve what flushUp stored *)
               (shiftBundle bIn (fun h ->
                 if h.repA.(r.repDepth) <> 0
                 then failwith "impossible: doEnter.Repeat found non-zero h.repA.(r.repDepth)";
@@ -574,8 +582,10 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
                 h))
             in
             stored := bzero;
-            doEnter here b subRQ
-              
+            let n = doEnter here b subRQ in
+            if n=0 then longest:=0; (* sub-pattern is empty, so clear longest orbitLog.loops *)
+            n
+
         in
         rq.numHistories <- n;
         n
@@ -614,8 +624,9 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
              mergeBundles bFront bBack))
 
       (* These two cases (RSeq and RRepeat) set stored to bzero *)
-      | RRepeat (r,stored,subRQ) ->
+      | RRepeat (r,stored,longest,subRQ) ->
         stored := bzero;
+        longest := 0;
         let histories = BundleMap.data (flushUpEnd indexAtEnd subRQ)
         and doOrbit h' task = (fun (t,o) -> doOrbitTask indexAtEnd h' (t,o,task))
         in
