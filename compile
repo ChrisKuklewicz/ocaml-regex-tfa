@@ -12,13 +12,13 @@ FILES2="Main.ml"
 
 optPP_I="$(ocamlfind query -i-format type_conv) $(ocamlfind query -i-format sexplib)"
 optPP="camlp4o $optPP_I pa_type_conv.cma pa_sexp_conv.cma"
-optPACKAGE="camomile,core,type_conv,sexplib"
+optPACKAGE="camomile,core,core_extended,type_conv,sexplib"
 #optI=$(ocamlfind query -i-format sexplib)
 #optL=$(ocamlfind query -l-format sexplib)
 
 compileFile () {
-#  echo ocamlfind ocamlopt $2 -w +A-4 -annot -pp "camlp4o -I `ocamlfind query type_conv` -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma" -I `ocamlfind query sexplib` -thread -package camomile,core,type_conv,sexplib /Users/chrisk/local//godi/lib/ocaml/pkg-lib/sexplib/sexplib.cmxa -c $1;
-       ocamlfind ocamlopt $2 -w +A-4 -annot -pp "camlp4o -I `ocamlfind query type_conv` -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma" -I `ocamlfind query sexplib` -thread -package camomile,core,type_conv,sexplib /Users/chrisk/local/godi/lib/ocaml/pkg-lib/sexplib/sexplib.cmxa -c $1;
+#  echo ocamlfind ocamlopt $2 -w +A-4 -annot -pp "camlp4o -I `ocamlfind query type_conv` -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma" -I `ocamlfind query sexplib` -thread -package $optPACKAGE /Users/chrisk/local//godi/lib/ocaml/pkg-lib/sexplib/sexplib.cmxa -c $1;
+       ocamlfind ocamlopt $2 -w +A-4 -annot -pp "camlp4o -I `ocamlfind query type_conv` -I `ocamlfind query sexplib` pa_type_conv.cma pa_sexp_conv.cma" -I `ocamlfind query sexplib` -thread -package $optPACKAGE /Users/chrisk/local/godi/lib/ocaml/pkg-lib/sexplib/sexplib.cmxa -c $1;
 }
 
 for i in $FILES; do
@@ -46,7 +46,7 @@ libs="Common.cmx History.cmx Monoid.cmx Pattern.cmx ReadPattern.cmx WhichTest.cm
 ocamlfind ocamlopt -thread -o Main -linkpkg -package "$optPACKAGE" $libs SimStep.cmx Main.cmx
 
 #rm UnitTest
-ocamlfind ocamlopt -thread -o UnitTest -linkpkg -package camomile,core,type_conv,sexplib $libs UnitTest.cmx
+ocamlfind ocamlopt -thread -o UnitTest -linkpkg -package $optPACKAGE $libs UnitTest.cmx
 
 ocamlfind ocamlopt -thread -o UnitTestStep -linkpkg -package "$optPACKAGE" $libs SimStep.cmx UnitTestStep.cmx
 

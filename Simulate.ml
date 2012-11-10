@@ -122,7 +122,6 @@ let doTagTask (i : strIndex) (h : 'o historyP) ((tag : tag),tagTask) = match tag
 let assertTagA message h tag value =
   if h.tagA.(tag) <> value
   then failwith (Printf.sprintf "%s h.tagA.(%i) == %i <> %i)" message tag h.tagA.(tag) value)
-  else ()
 
 let doOrbitTask (i : strIndex) (h : history) ((tag : tag),(orbit : orbit),orbitTask) = match orbitTask with
     (* tagA value evolves from -1 to 0 when repeat is first entered, from 0 to 1 when it finally leaves *)

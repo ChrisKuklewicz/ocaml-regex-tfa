@@ -389,7 +389,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
 
   and flushUpEnd i (rq : runQ) : bundle =
     let bUp = match rq.getRun with
-      (* These four cases are mostly the same as flushUp *)
+      (* These four cases are mostly the same as flushUpEnd *)
       | ROneChar (_uc,stored) ->
         let b = !stored in
         stored := bzero;
@@ -428,7 +428,7 @@ let simFlush ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
           forOpt r.getOrbit (doOrbit hLoop LoopOrbitTask)
         in
         
-        (* Now mutate histories on way out of flushUp *)
+        (* Now mutate histories on way out of flushUpEnd *)
         let aboveLow h = r.lowBound <= h.repA.(r.repDepth)
         in
         let loopNull (h : history) : history option = (* mutates h, no need to copy it *)

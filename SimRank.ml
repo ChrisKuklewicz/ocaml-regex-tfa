@@ -8,8 +8,8 @@ Steps in change:
 
 DONE: modify orbit log to hold rank, log, and log length.
 
-for bundles leaving repeats do the cohort classification and  compression to rank and empty log.
-Here cohort is based on comparison through entry into repeat (exit is implicitly equal).
+DONE: for bundles leaving repeats do the cohort classification and  compression to rank and empty log.
+Here cohort is based on comparison of entry strIndex into repeat (exit is implicitly equal).
 
 add max orbit length tracker in repeat
 
@@ -24,13 +24,16 @@ add limit paramter
 
 *)
 
-open Sexplib.Std
 open Common
 open WhichTest
 open ReadPattern
 open CorePattern
+open Core.Std
 
 TYPE_CONV_PATH "SimRank"
+
+let to_string_hum = Sexplib.Sexp.to_string_hum
+let classify = Core_extended.Extended_list.classify
 
 module ImportSimulate = struct
   include (Simulate :
@@ -81,71 +84,122 @@ let copyHistory { tagA=a;repA=b;orbitA=c } = { tagA = Array.copy a
                                              ; orbitA = Array.copy c
                                              }
 
-
 (* Replace Simulate.interpretGroups *)
 (* init is offset to allow for restarting strIndex *)
 let interpretGroups (init : strIndex) (giA : groupInfo array) (h : history) : groupCap =
   (* Printf.printf "tag array length %d\n" (Array.length h.tagA); *)
   (* Printf.printf "group length %d\n" (1+Array.length giA);*)
   let x = Array.create (1+Array.length giA) (-1,-1) in
-  x.(0) <- (init+h.tagA.(0),init+h.tagA.(1));
-  forArray giA (fun gi ->
+  x.(0) <- (init+h.tagA.(0), init+h.tagA.(1));
+  Array.iter giA ~f:(fun gi ->
     if h.tagA.(gi.flagTag)=0 then
       if x.(gi.parentIndex) <> (-1,-1) then
-        x.(gi.thisIndex) <- (init+h.tagA.(gi.startTag),init+h.tagA.(gi.stopTag));
+        x.(gi.thisIndex) <- (init+h.tagA.(gi.startTag), init+h.tagA.(gi.stopTag));
   );
   x
 
+(* groups tests consecutive elements and groups runs of "equal" elements into non-empty sublists *)
+let group ~eq:eq xsIn =
+  let rec go acc nxt x xs =
+    match xs with
+      | [] -> List.rev (List.rev (x::nxt) :: acc)
+      | y :: ys -> if eq x y
+        then go acc (x::nxt) y ys
+        else go (List.rev (x::nxt) :: acc) [] y ys
+  in
+  match xsIn with
+    | [] -> []
+    | (x::xs) -> go [] [] x xs
+
+let compressLog histories (_tag,orbit) =
+  let getBasePos h = mapOpt (fun hLog -> hLog.basePos) h.orbitA.(orbit)
+  and cmpOrdLoops h1 h2 = match h1.orbitA.(orbit), h2.orbitA.(orbit) with
+    | None,None | Some _,None | None,Some _ -> failwith "SimRank.compressLog.cmpOrdLoops impossible None"
+    | Some h1Log, Some h2Log -> (match compare h1Log.ordinal h2Log.ordinal with
+        | 0 -> comparePos (List.rev h1Log.loops) (List.rev h2Log.loops)
+        | x -> x)
+  and setOrder (rank : int) (h : history) = Option.iter h.orbitA.(orbit)
+    ~f:(fun hLog -> h.orbitA.(orbit) <- Some { hLog with ordinal = Some rank; loopsCount = 0; loops = [] })
+      
+  in
+  let eqOrdLoops h1 h2 = 0 = cmpOrdLoops h1 h2
+  in
+  let sortClass (entry, hs) = 
+    match entry with
+      | None -> ()
+      | Some _ -> let grouped = group ~eq:eqOrdLoops (List.sort ~cmp:cmpOrdLoops hs)
+                  in List.iteri grouped
+                       ~f:(fun i hs -> List.iter ~f:(setOrder i) hs)
+  and classed = classify ~equal:(=) ~f:getBasePos histories
+  in List.iter classed ~f:sortClass
+
+(* cmpLogs is used both in compareHistory and for sorting orbitLogs for compression *)
+let cmpLogs tag orbitNum h1 h2 : int =
+  begin
+    if h1.tagA.(tag) <> h2.tagA.(tag)
+    then (
+      let s1 = to_string_hum (sexp_of_history h1)
+      and s2 = to_string_hum (sexp_of_history h2)
+      in 
+      failwith (Printf.sprintf "SimRank.cmpLogs at tag %d expected o1=o2 but %d<>%d here\n\
+                                h1 is %s\n\
+                                h2 is %s\n"
+                  tag  h1.tagA.(tag) h2.tagA.(tag) s1 s2));
+    match h1.orbitA.(orbitNum), h2.orbitA.(orbitNum) with
+      | None, None -> 0
+      | Some h1Log, Some h2Log ->
+        let rec matchLogs () =
+          match h1Log.ordinal, h2Log.ordinal with
+            | None, None -> matchLoops ()
+            | Some o1, Some o2 -> matchOrdinals o1 o2
+            | None, Some o | Some o, None -> (
+              let s1 = to_string_hum (sexp_of_history h1)
+              and s2 = to_string_hum (sexp_of_history h2)
+              and s3 = to_string_hum (sexp_of_orbitLog h1Log)
+              and s4 = to_string_hum (sexp_of_orbitLog h2Log)
+              in
+              failwith (Printf.sprintf "SimRank.cmpLogs at tag %d with tagA %d had a \"None\" ordinal and a \"Some %d\" ordinal\n\
+                                        h1 is %s\n\
+                                        h2 is %s\n\
+                                        h1Log is %s\n\
+                                        h2Log is %s\n"
+                          tag  h1.tagA.(tag) o s1 s2 s3 s4));
+        and matchOrdinals o1 o2 = (match compare o1 o2 with 0 -> matchLoops () | x -> x)  (* XXX: do I need to negate x ? *)
+        and matchLoops () = comparePos (List.rev h1Log.loops) (List.rev h2Log.loops)
+        in matchLogs ()
+      | None, Some o | Some o, None -> (
+        let s1 = to_string_hum (sexp_of_history h1)
+        and s2 = to_string_hum (sexp_of_history h2)
+        and s3 = to_string_hum (sexp_of_orbitLog o)
+        in
+        failwith (Printf.sprintf "SimRank.cmpLogs at tag %d with tagA %d had a \"None\" orbitLog and a \"Some o\" orbitLog\n\
+                       h1 is %s\n\
+                       h2 is %s\n\
+                       o is %s\n"
+                  tag h1.tagA.(tag) s1 s2 s3));
+  end
+
 (* Replace Simulate.compareHistory *)
-(* Returns -1 if h1 is better than h2 and +1 if h2 is better than h1 and 0 for ties *)
+(* Returns -1 if h1 is better than h2 (h1<h2) and +1 if h2 is better than h1 (h1>h2) and 0 for ties (h1=h2) *)
 let compareHistory (ops : tagOP array) : history -> history -> int =
   let bound = Array.length ops in
   fun h1 h2 ->
     if h1.repA <> h2.repA  (* sanity check, this ought to be impossible *)
     then
-      let s1 = Sexplib.Sexp.to_string_hum (sexp_of_history h1)
-      and s2 = Sexplib.Sexp.to_string_hum (sexp_of_history h2)
-      in failwith (Printf.sprintf "Simulate.compareHistory.compareOrbit found h1.repA <> h2.repA\n\
+      let s1 = to_string_hum (sexp_of_history h1)
+      and s2 = to_string_hum (sexp_of_history h2)
+      in failwith (Printf.sprintf "SimRank.compareHistory.compareOrbit found h1.repA <> h2.repA\n\
                                    h1 is %s\n\
                                    h2 is %s\n" s1 s2)
     else
       let rec go i =
-        if i < bound
-        then match ops.(i) with
-          | Minimize -> (match compare h1.tagA.(i) h2.tagA.(i) with 0 -> go (1+i) | x -> x)
-          | Maximize -> (match compare h2.tagA.(i) h1.tagA.(i) with 0 -> go (1+i) | x -> x)
-          | GroupFlag -> go (1+i)
-          | Orbit orbitNum ->
-            begin
-              if h1.tagA.(i) <> h2.tagA.(i)
-              then (
-                let s1 = Sexplib.Sexp.to_string_hum (sexp_of_history h1)
-                and s2 = Sexplib.Sexp.to_string_hum (sexp_of_history h2)
-                in 
-                  failwith (Printf.sprintf "Simulate.compareHistory.compareOrbit at tag %d expected o1=o2 but %d<>%d here\n\
-                                   h1 is %s\n\
-                                   h2 is %s\n"
-                              i  h1.tagA.(i) h2.tagA.(i) s1 s2));
-              match h1.orbitA.(orbitNum), h2.orbitA.(orbitNum) with
-                | None, None -> go (1+i)
-                | Some h1Log, Some h2Log -> 
-                    (match comparePos (Core.Core_list.rev h1Log.loops) (Core.Core_list.rev h2Log.loops) with
-                      | 0 -> go (1+i)
-                      | x -> x
-                    )
-                | None, Some o | Some o, None -> (
-                    let s1 = Sexplib.Sexp.to_string_hum (sexp_of_history h1)
-                    and s2 = Sexplib.Sexp.to_string_hum (sexp_of_history h2)
-                    and s3 = Sexplib.Sexp.to_string_hum (sexp_of_orbitLog o)
-                    in 
-                    failwith (Printf.sprintf "Simulate.compareHistory.compareOrbit at tag %d with tagA %d had a None orbitLog and a Some orbitLog o\n\
-                                   h1 is %s\n\
-                                   h2 is %s\n\
-                                   o is %s\n"
-                              i  h1.tagA.(i) s1 s2 s3));
-
-            end
-        else 0
+        if bound <= i
+        then 0
+        else match ops.(i) with
+          | Minimize -> (match compare h1.tagA.(i) h2.tagA.(i) with 0 -> go (succ i) | x -> x)
+          | Maximize -> (match compare h2.tagA.(i) h1.tagA.(i) with 0 -> go (succ i) | x -> x)
+          | GroupFlag -> go (succ i)
+          | Orbit orbitNum -> (match cmpLogs i orbitNum h1 h2 with 0 -> go (succ i) | x -> x)
       in go 0
 
 (* Replace Simulate.doOrbitTask *)
@@ -156,7 +210,8 @@ let emptyOrbitLog = { basePos = (-1)
 
 let newOrbitLog i = { emptyOrbitLog with basePos = i }
 
-let appendOrbitLog (i : strIndex) (old : orbitLog) : orbitLog = { old with loopsCount = 1 + old.loopsCount; loops = i :: old.loops }
+let appendOrbitLog (i : strIndex) (old : orbitLog) : orbitLog =
+  { old with loopsCount = succ old.loopsCount; loops = i :: old.loops }
 
 let assertTagA message h tag value =
   if h.tagA.(tag) <> value
@@ -183,13 +238,13 @@ let doTagTask (i : strIndex) (h : history) ((tag : tag),tagTask) = match tagTask
   | ResetGroupStopTask -> h.tagA.(tag) <- (-1)
   | SetGroupStopTask   -> h.tagA.(tag) <-   0
 let doRepTask (h : history) (tag,repTask) = match repTask with
-    IncRep topCount -> h.repA.(tag) <- min topCount (1+h.repA.(tag))
+    IncRep topCount -> h.repA.(tag) <- min topCount (succ h.repA.(tag))
   | LeaveRep -> h.repA.(tag) <- 0
 (* doTasks is used by the null matching code *)
 let doTasks (i : strIndex) (h : history) (tl : taskList) =
-  forList tl.tlTag (doTagTask i h);
-  forList tl.tlOrbit (doOrbitTask i h);
-  forList tl.tlRep (doRepTask h);
+  List.iter tl.tlTag ~f:(doTagTask i h);
+  List.iter tl.tlOrbit ~f:(doOrbitTask i h);
+  List.iter tl.tlRep ~f:(doRepTask h);
   h
 
 module RepStateID =
@@ -199,18 +254,18 @@ struct
   let compare = compare
 end
 
-module BundleMap = Core.Core_map.Make(RepStateID)
+module BundleMap = Map.Make(RepStateID)
 
 type bundle = history BundleMap.t
 
 let bzero = BundleMap.empty
 
 (* Transforms the histories without affecting the repA key *)
-let forBundle (b : bundle) (g : history -> unit) : unit =
+let bundle_iter (b : bundle) ~f:(g : history -> unit) : unit =
   BundleMap.iter b ~f:(fun ~key:_ ~data:h -> g h)
 
 let copyBundle b = BundleMap.of_alist_exn 
-  (Core.Core_list.map 
+  (List.map 
      (BundleMap.to_alist b) 
      ~f:(fun (key,h) -> (key,copyHistory h)))
 
@@ -240,7 +295,7 @@ type runQ = bundle runQB
 
 let rec coreToRun (c : coreQ) : runQ =
   let run = match c.unQ with
-    | Or qs -> ROr (Core.Core_list.map qs ~f:coreToRun)
+    | Or qs -> ROr (List.map qs ~f:coreToRun)
     | Seq (qFront,qBack) -> RSeq (coreToRun qFront,
                                   ref bzero,
                                   coreToRun qBack)
@@ -252,7 +307,6 @@ let rec coreToRun (c : coreQ) : runQ =
     | CaptureGroup cg -> RCaptureGroup (cg,coreToRun cg.subPat)
   in { getCore = c; getRun = run; numHistories = 0 }
 
-
 type simFeedRank = stepData -> history list
 
 (* The returned simFeedRank muse be fed zero or more StepChar followed by a single StepEnd.  Entries
@@ -263,9 +317,9 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
   in
   let prev = ref prevIn  (* Anchors can test facts about preceding character *)
   and winners = ref []
-  and startHistory = { tagA   = Array.make numTags (-1)
-                     ; repA   = Array.make cr.depthCount 0
-                     ; orbitA = Array.make cr.orbitCount None
+  and startHistory = { tagA   = Array.create numTags (-1)
+                     ; repA   = Array.create cr.depthCount 0
+                     ; orbitA = Array.create cr.orbitCount None
                      }
   in
   let cycle here =
@@ -283,7 +337,7 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
 
   let bestHistoryList hs = match hs with
     | [] -> failwith "bestHistoryList failed with [] parameter"
-    | x::xs -> Core.Core_list.fold_left ~f:bestHistory ~init:x xs
+    | x::xs -> List.fold_left ~f:bestHistory ~init:x xs
   in
 
   (* Transforms the histories shifting the repA key, with collisions possible *)
@@ -291,7 +345,7 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
     BundleMap.map
       ~f:bestHistoryList (* resolve list of collisions *)
       (BundleMap.of_alist_multi
-         (Core.Core_list.map
+         (List.map
             (BundleMap.data b) 
             ~f:(fun h ->
               let h' = g h
@@ -304,7 +358,7 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
         BundleMap.map
           ~f:bestHistoryList (* resolve list of collisions *)
           (BundleMap.of_alist_multi
-             (Core.Core_list.map
+             (List.map
                 hs
                 ~f:(fun h ->
                   (h.repA,h))))
@@ -319,7 +373,7 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
 
   let mergeBundleList : bundle list -> bundle = function
     | [] -> bzero
-    | (b::bs) -> Core.Core_list.fold_left  ~f:mergeBundles ~init:b bs
+    | (b::bs) -> List.fold_left  ~f:mergeBundles ~init:b bs
   in
 
   let newHistoryAt i = 
@@ -335,13 +389,13 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
 
   (* doPreTag does all the rq.getCore.preTag work on the histories in the bundle *)
   let doPreTag rq bContinue i : unit =
-    forOpt rq.getCore.preTag (fun tag ->
-      forBundle bContinue (fun hContinue ->
+    Option.iter rq.getCore.preTag ~f:(fun tag ->
+      bundle_iter bContinue ~f:(fun hContinue ->
         doTagTask i hContinue (tag,TagTask)))
   (* doPostTag does all the rq.getCore.postTag work on the histories in the bundle *)
   and doPostTag rq bContinue i : unit =
-    forOpt rq.getCore.postTag (fun tag ->
-      forBundle bContinue (fun hContinue ->
+    Option.iter rq.getCore.postTag ~f:(fun tag ->
+      bundle_iter bContinue ~f:(fun hContinue ->
         doTagTask i hContinue (tag,TagTask)))
   in
 
@@ -349,16 +403,16 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
      character, or at the end of the search *)
   let rec nextStep = function
     | StepChar ((i,_c) as here) ->
-      forBundle (flushUp here root) (doWin i);
-      forOpt (tryTaskList here root) (fun taskList ->
+      bundle_iter (flushUp here root) ~f:(doWin i);
+      Option.iter (tryTaskList here root) ~f:(fun taskList ->
         doWin i (doTasks i (newHistoryAt i) taskList));
       let b = newBundleAt i in
       ignore (doEnter here b root);
       cycle here
 
     | StepEnd indexAtEnd ->
-      forBundle (flushUpEnd indexAtEnd root) (doWin indexAtEnd);
-      forOpt (tryTaskListEnd indexAtEnd root) (fun taskList ->
+      bundle_iter (flushUpEnd indexAtEnd root) ~f:(doWin indexAtEnd);
+      Option.iter (tryTaskListEnd indexAtEnd root) ~f:(fun taskList ->
         doWin indexAtEnd (doTasks indexAtEnd (newHistoryAt indexAtEnd) taskList));
       cycle (indexAtEnd,newline)
 
@@ -378,11 +432,11 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
           stored := bzero;
           b
 
-        | ROr rqs -> mergeBundleList (Core.Core_list.map rqs ~f:(flushUp here))
+        | ROr rqs -> mergeBundleList (List.map rqs ~f:(flushUp here))
 
         | RCaptureGroup (cg,subRQ) ->
           let bSubPat = flushUp here subRQ in 
-          forBundle bSubPat (fun h ->
+          bundle_iter bSubPat ~f:(fun h ->
             doTagTask i h (cg.postSet,SetGroupStopTask));
           bSubPat
 
@@ -392,11 +446,11 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
           let bFront = flushUp here rqFront in
           stored := bFront;
           let bBack = flushUp here rqBack in
-          Core.Option.value_map (tryTaskList here rqBack)
+          Option.value_map (tryTaskList here rqBack)
             ~default:bBack
             ~f:(fun taskList ->
               let bMid = copyBundle bFront in
-              (forBundle bMid (fun h ->
+              (bundle_iter bMid ~f:(fun h ->
                 ignore (doTasks i h taskList));
                mergeBundles bMid bBack))
 
@@ -413,8 +467,8 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
           in
           let loopIt hLoop = (* mutate hLoop *)
             doRepTask hLoop (r.repDepth,IncRep r.topCount);
-            forList r.resetOrbits (doOrbit hLoop ResetOrbitTask);
-            forOpt r.getOrbit (doOrbit hLoop LoopOrbitTask)
+            List.iter r.resetOrbits ~f:(doOrbit hLoop ResetOrbitTask);
+            Option.iter r.getOrbit ~f:(doOrbit hLoop LoopOrbitTask)
           and atLimit = match r.optHiBound with
             | None -> (fun _ -> false)
             | Some hi -> (fun h -> hi = h.repA.(r.repDepth))
@@ -428,7 +482,7 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
                  in (loopIt hLoop; Some hLoop)
           in
           (* makes copies of histories as needed *)
-          let bLoop = assembleBundle (Core.Core_list.filter_map histories ~f:loopEnter)
+          let bLoop = assembleBundle (List.filter_map histories ~f:loopEnter)
           in
           stored := bLoop;
 
@@ -436,12 +490,12 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
           let aboveLow h = r.lowBound <= h.repA.(r.repDepth)
           in
           let loopNull (h : history) : history option = (* mutates h, no need to copy it *)
-            Core.Option.map (tryTaskList here subRQ) ~f:(fun taskList ->
+            Option.map (tryTaskList here subRQ) ~f:(fun taskList ->
               loopIt h;
               doTasks i h taskList);
           and leaveIt h = (* mutates h, no need to make copies *)
             doRepTask h (r.repDepth,LeaveRep);
-            forOpt r.getOrbit (doOrbit h LeaveOrbitTask)
+            Option.iter r.getOrbit ~f:(doOrbit h LeaveOrbitTask)
           in
           let listFlush h = (* mutates h, no need to make copies *)
             if aboveLow h
@@ -449,9 +503,11 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
             else match loopNull h with
               | None -> []
               | Some hLoop -> [hLoop]
-          in (* mutates and does not need to make copies *)
-          let toLeave = Core.Core_list.concat_map histories ~f:listFlush in
-          forList toLeave leaveIt;
+          in 
+          let toLeave = List.concat_map histories ~f:listFlush in
+          (* mutate toLeave, no need to make copies *)
+          List.iter toLeave ~f:leaveIt;
+          Option.iter r.getOrbit ~f:(compressLog toLeave);
           assembleBundle toLeave
 
       in 
@@ -476,25 +532,26 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
           | ROneChar _ -> 0
 
           | ROr rqs ->
-            let accepted = Core.Core_list.map rqs ~f:(fun rqChild ->
+            let accepted = List.map rqs ~f:(fun rqChild ->
               doEnter here (copyBundle bIn) rqChild)
             in
-            Core.Core_list.fold_left ~f:(+) ~init:0 accepted
+            List.fold_left ~f:(+) ~init:0 accepted
 
           | RTest -> failwith "impossible: doEnter.RTest should be unreachable"
 
           | RCaptureGroup (cg,subRQ) ->
-            forBundle bIn (fun h ->
-              forList cg.preReset (fun tag ->
+            bundle_iter bIn ~f:(fun h ->
+              List.iter cg.preReset ~f:(fun tag ->
                 doTagTask i h (tag,ResetGroupStopTask)));
             doEnter here bIn subRQ
 
+          (* These two cases (RSeq and RRepeat) set stored to bzero *)
           | RSeq (rqFront,stored,rqBack) ->
-            let bMid = Core.Option.value_map (tryTaskList here rqFront)
+            let bMid = Option.value_map (tryTaskList here rqFront)
               ~default:!stored
               ~f:(fun taskList ->
                 let bSkip = copyBundle bIn in
-                forBundle bSkip (fun h ->
+                bundle_iter bSkip ~f:(fun h ->
                   ignore (doTasks i h taskList));
                 mergeBundles bSkip !stored)
             in
@@ -503,6 +560,7 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
             let nBack = doEnter here bMid rqBack in
             nFront+nBack
 
+          (* These two cases (RSeq and RRepeat) set stored to bzero *)
           | RRepeat (r,stored,subRQ) ->
             let doOrbit h' task = (fun (t,o) -> doOrbitTask i h' (t,o,task))
             in
@@ -511,8 +569,8 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
                 if h.repA.(r.repDepth) <> 0
                 then failwith "impossible: doEnter.Repeat found non-zero h.repA.(r.repDepth)";
                 doRepTask h (r.repDepth,IncRep r.topCount);
-                forList r.resetOrbits (doOrbit h ResetOrbitTask);
-                forOpt r.getOrbit (doOrbit h EnterOrbitTask);
+                List.iter r.resetOrbits ~f:(doOrbit h ResetOrbitTask);
+                Option.iter r.getOrbit ~f:(doOrbit h EnterOrbitTask);
                 h))
             in
             stored := bzero;
@@ -527,34 +585,35 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
   (* flushUpEnd checks previous stored threads, returning those that have finished matching rq *)
   and flushUpEnd indexAtEnd (rq : runQ) : bundle =
     let bUp = match rq.getRun with
-      (* These four cases are mostly the same as flushUp *)
+      (* These four cases are mostly the same as flushUpEnd *)
       | ROneChar (_uc,stored) ->
         let b = !stored in
         stored := bzero;
         b
 
-      | ROr rqs -> mergeBundleList (Core.Core_list.map rqs ~f:(flushUpEnd indexAtEnd))
+      | ROr rqs -> mergeBundleList (List.map rqs ~f:(flushUpEnd indexAtEnd))
 
       | RCaptureGroup (cg,subRQ) ->
         let bSubPat = flushUpEnd indexAtEnd subRQ in 
-        forBundle bSubPat (fun h ->
+        bundle_iter bSubPat ~f:(fun h ->
           doTagTask indexAtEnd h (cg.postSet,SetGroupStopTask));
         bSubPat
 
       | RTest -> bzero
 
-      (* These two cases set stored to bzero *)
+      (* These two cases (RSeq and RRepeat) set stored to bzero *)
       | RSeq (rqFront,stored,rqBack) ->
         stored := bzero;
         let bBack = flushUpEnd indexAtEnd rqBack in
-        Core.Option.value_map (tryTaskListEnd indexAtEnd rqBack)
+        Option.value_map (tryTaskListEnd indexAtEnd rqBack)
           ~default:bBack
           ~f:(fun taskList ->
             let bFront = flushUpEnd indexAtEnd rqFront in
-            (forBundle bFront (fun h ->
+            (bundle_iter bFront ~f:(fun h ->
               ignore (doTasks indexAtEnd h taskList));
              mergeBundles bFront bBack))
 
+      (* These two cases (RSeq and RRepeat) set stored to bzero *)
       | RRepeat (r,stored,subRQ) ->
         stored := bzero;
         let histories = BundleMap.data (flushUpEnd indexAtEnd subRQ)
@@ -562,20 +621,20 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
         in
         let loopIt hLoop = (* mutate hLoop *)
           doRepTask hLoop (r.repDepth,IncRep r.topCount);
-          forList r.resetOrbits (doOrbit hLoop ResetOrbitTask);
-          forOpt r.getOrbit (doOrbit hLoop LoopOrbitTask)
+          List.iter r.resetOrbits ~f:(doOrbit hLoop ResetOrbitTask);
+          Option.iter r.getOrbit ~f:(doOrbit hLoop LoopOrbitTask)
         in
         
-        (* Now mutate histories on way out of flushUp *)
+        (* Now mutate histories on way out of flushUpEnd *)
         let aboveLow h = r.lowBound <= h.repA.(r.repDepth)
         in
         let loopNull (h : history) : history option = (* mutates h, no need to copy it *)
-          Core.Option.map (tryTaskListEnd indexAtEnd subRQ) ~f:(fun taskList ->
+          Option.map (tryTaskListEnd indexAtEnd subRQ) ~f:(fun taskList ->
             loopIt h;
             doTasks indexAtEnd h taskList)
         and leaveIt h = (* mutates h, no need to make copies *)
           doRepTask h (r.repDepth,LeaveRep);
-          forOpt r.getOrbit (doOrbit h LeaveOrbitTask)
+          Option.iter r.getOrbit ~f:(doOrbit h LeaveOrbitTask)
         in
         let listFlush h = (* mutates h, no need to make copies *)
           if aboveLow h then [h]
@@ -583,8 +642,8 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
             | None -> []
             | Some hLoop -> [hLoop]
         in
-        let toLeave = Core.Core_list.concat_map histories ~f:listFlush in
-        forList toLeave leaveIt;
+        let toLeave = List.concat_map histories ~f:listFlush in
+        List.iter toLeave ~f:leaveIt;
         assembleBundle toLeave
 
     in 
@@ -602,9 +661,9 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
       let pass = match testSet with
         | AlwaysTrue -> true
         | AlwaysFalse -> false
-        | CheckAll tests -> Core.Core_list.for_all (WhichTestMap.to_alist tests) ~f:checkTest
+        | CheckAll tests -> List.for_all (WhichTestMap.to_alist tests) ~f:checkTest
       in if pass then Some taskList else None
-    in Core.Core_list.find_map ~f:tryNull rq.getCore.nullQ
+    in List.find_map ~f:tryNull rq.getCore.nullQ
 
   (* tryTaskList and tryTaskListEnd see if rq succeeds here without consuming a character *)
   and tryTaskListEnd _indexAtEnd rq : taskList option = (* no mutation *)
@@ -617,9 +676,9 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
       let pass = match testSet with
         | AlwaysTrue -> true
         | AlwaysFalse -> false
-        | CheckAll tests -> Core.Core_list.for_all (WhichTestMap.to_alist tests) ~f:checkTest
+        | CheckAll tests -> List.for_all (WhichTestMap.to_alist tests) ~f:checkTest
       in if pass then Some taskList else None
-    in Core.Core_list.find_map ~f:tryNull rq.getCore.nullQ
+    in List.find_map ~f:tryNull rq.getCore.nullQ
 
   in nextStep
 
@@ -635,8 +694,8 @@ let uWrapRank (cr : coreResult) (text : ustring) : o =
     | [] ->
       let wins = nextStep (StepEnd indexAtEnd) in
       allWins := wins @ !allWins;
-      Core.Core_list.map
-        (Core.Core_list.sort ~cmp:(compareHistory cr.tags) !allWins)
+      List.map
+        (List.sort ~cmp:(compareHistory cr.tags) !allWins)
         ~f:(fun h -> (interpretGroups 0 cr.groups h,h))
     | (x::xs) ->
       let wins = nextStep (StepChar x) in
@@ -649,5 +708,5 @@ let uWrapRank (cr : coreResult) (text : ustring) : o =
 
 let wrapSimRank (pattern : ustring) (text: ustring) : o =
   match (parseRegex pattern) with
-    | Core.Result.Error _err -> (*Printf.printf "Error: %s\n" err;*) []
-    | Core.Result.Ok p -> let cr = toCorePattern p in uWrapRank cr text
+    | Result.Error _err -> (*Printf.printf "Error: %s\n" err;*) []
+    | Result.Ok p -> let cr = toCorePattern p in uWrapRank cr text
