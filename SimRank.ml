@@ -15,9 +15,9 @@ DONE: add field for longestOrbit to RRepeat
 
 DONE: when sub-pattern is empty of state set longest to zero, also zero longest in flushUpEnd
 
-when looping in repeat capture new longest length
+DONE: when looping in repeat capture new longest length
 
-add limit paramter
+DONE: add limit paramter
 
   check for max length over limit (after flush up?) and do collection, cohort classification and
   compression.  Here cohort classification is based on comparison though entry into repeat.
@@ -314,11 +314,14 @@ let rec coreToRun (c : coreQ) : runQ =
 
 type simFeedRank = stepData -> history list
 
+let param_LimitLoopsCount = ref 4
+
 (* The returned simFeedRank muse be fed zero or more StepChar followed by a single StepEnd.  Entries
    in (history list) at each step are winning histories *)
 let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
   let numTags = Array.length cr.tags
   and root = coreToRun cr.cp
+  and limitLoopsCount = !param_LimitLoopsCount
   in
   let prev = ref prevIn  (* Anchors can test facts about preceding character *)
   and winners = ref []
@@ -486,13 +489,19 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
             else let hLoop = copyHistory h
                  in (loopIt hLoop; Some hLoop)
           in
+          (* makes copies of histories as needed, retrieved by doEnter *)
+          stored := assembleBundle (List.filter_map histories ~f:loopThem);
+          (* get longest loopsCount from stored histories (do this after loopThem above) *)
           longest := Option.value_map r.getOrbit ~default:0 ~f:(fun (_t,o) ->
               List.fold_left ~init:!longest ~f:max (
                 List.map histories ~f:(fun h ->
                   Option.value_map h.orbitA.(o) ~default:0 ~f:(fun hLog ->
                     hLog.loopsCount))));
-          (* makes copies of histories as needed, retrieved by doEnter *)
-          stored := assembleBundle (List.filter_map histories ~f:loopThem);
+          if !longest > limitLoopsCount then
+            begin
+              Option.iter r.getOrbit ~f:(compressLog histories);
+              longest := 0
+            end;
 
           (* Now mutate histories on way out of flushUp *)
           let aboveLow h = r.lowBound <= h.repA.(r.repDepth)
@@ -583,7 +592,7 @@ let simRank ?(prevIn=(-1,newline)) (cr : coreResult) : simFeedRank =
             in
             stored := bzero;
             let n = doEnter here b subRQ in
-            if n=0 then longest:=0; (* sub-pattern is empty, so clear longest orbitLog.loops *)
+            if n=0 then longest := 0; (* sub-pattern is empty, so clear longest orbitLog.loops *)
             n
 
         in
