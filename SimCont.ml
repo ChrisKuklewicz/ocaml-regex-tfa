@@ -164,7 +164,7 @@ let simCont ?(prevIn=(-1,newline)) (cr : coreResult) : simFeed =
             begin
               if h.repA.(r.repDepth) <> 0
               then failwith "impossible: doEnter.Repeat found non-zero h.repA.(r.repDepth)";
-              doRepTask h (r.repDepth,IncRep r.topCount);
+              doRepTask h (r.repDepth, IncRep r.topCount);
               forList r.resetOrbits (doOrbit ResetOrbitTask);
               forOpt r.getOrbit (doOrbit EnterOrbitTask);
               doEnter here h r.unRep
